@@ -18,11 +18,8 @@ URLS = [
     "https://evilgodfahim.github.io/bdit/daily_feed_2.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed.xml",
     "https://evilgodfahim.github.io/edit/daily_feed.xml",
-
 "https://evilgodfahim.github.io/bint/final.xml",
-
 "https://evilgodfahim.github.io/bdlb/final.xml",
-
 "https://evilgodfahim.github.io/bint/final_extra.xml"
 ]
 
