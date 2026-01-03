@@ -95,7 +95,7 @@ def fetch_titles_only():
     seen_links = set()
     seen_titles = set()
     now = datetime.now(timezone.utc)
-    cutoff_time = now - timedelta(hours=24)
+    cutoff_time = now - timedelta(hours=26)
     
     print(f"🕒 Time Filter: Articles after {cutoff_time.strftime('%Y-%m-%d %H:%M UTC')}", flush=True)
     headers = {'User-Agent': 'BCS-Curator/2.0'}
