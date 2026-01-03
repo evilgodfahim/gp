@@ -17,7 +17,13 @@ URLS = [
     "https://evilgodfahim.github.io/daily/daily_master.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed_2.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed.xml",
-    "https://evilgodfahim.github.io/edit/daily_feed.xml"
+    "https://evilgodfahim.github.io/edit/daily_feed.xml",
+
+"https://evilgodfahim.github.io/bint/final.xml",
+
+"https://evilgodfahim.github.io/bdlb/final.xml",
+
+"https://evilgodfahim.github.io/bint/final_extra.xml"
 ]
 
 # Groq Configuration
@@ -159,31 +165,52 @@ def call_groq_analyzer(batch):
     prompt_list = [f"{a['id']}: {a['title']}" for a in batch]
     prompt_text = "\n".join(prompt_list)
 
-    system_prompt = """You are a Chief Information Filter. Your job: from a list of headlines, select only those that reveal structural change or sustained significance. Do not use keywords, recency, popularity, or external data. Judge linguistic pattern and systemic consequence only.
-
-TWO TYPES (internal classification) Type A — STRUCTURAL: explains how systems, power, money, institutions, or long-term social/technological/climatic forces operate or change.
-Type B — EPISODIC: isolated incidents, personal stories, sports/entertainment, crimes or accidents with no system-level implication.
-Select only Type A.
-
-FOUR LENSES (use these patterns; no others) Governance & Control
-— Rules, laws, enforcement, institutional shifts, authority transfer, administrative or judicial change.
-Economic & Resource Flows
-— Shifts in capital, trade, production, fiscal/monetary policy, systemic financial risk, resource allocation.
-Power Relations & Strategy
-— Diplomatic moves, alliances, coercion, military/security posture, shifts in strategic leverage.
-Ideas & Long-Term Trends
-— Editorial framing that changes debate, scientific/tech breakthroughs with policy effect, demographic or climate trends.
-
-SINGLE DECISION TEST (mandatory) Ask this exact question: "Does this headline explain how a system works or how it will change in a way that remains meaningful beyond immediate sensation?"
-If clearly yes or plausibly yes → SELECT.
-If no → SKIP.
-Do not ask additional questions.
-
-AUTOMATIC EXCLUSIONS Always skip: routine crimes, single-person scandals, pure accidents without policy consequence, sports results, entertainment, lifestyle, and emotional or viral content with no systemic link.
-
-OUTPUT SPEC (strict) Return only a JSON array. Each element must be an object with exactly: id, category, reason.
-category must be one of: "Governance & Control", "Economic & Resource Flows", "Power Relations & Strategy", "Ideas & Long-Term Trends".
-reason must be one short sentence stating the structural relevance. No extra fields, no commentary, no markdown, no text outside the JSON. Start with [ and end with ]."""
+    system_prompt = """You are a Chief Information Filter.
+Your task is to select headlines with structural and lasting significance.
+You do not evaluate importance by popularity, novelty, or emotion.
+You evaluate how information explains or alters systems.
+Judgment must rely only on linguistic structure, implied scope, and systemic consequence.
+TWO INFORMATION TYPES (internal use)
+STRUCTURAL
+— Explains how power, institutions, economies, or long-term social/strategic forces operate or change.
+EPISODIC
+— Describes isolated events, individual actions, or short-lived situations without system impact.
+Select only STRUCTURAL.
+FOUR STRUCTURAL LENSES (exclusive)
+GOVERNANCE & CONTROL
+Rules, enforcement, institutional balance, authority transfer, administrative or judicial change.
+ECONOMIC & RESOURCE FLOWS
+Capital movement, trade structure, production capacity, fiscal or monetary direction, systemic risk.
+POWER RELATIONS & STRATEGY
+Strategic alignment, coercion, deterrence, security posture, long-term rivalry or cooperation.
+IDEAS, ARGUMENTS & LONG-TERM TRENDS
+Editorial reasoning, policy debate, scientific or technological trajectories, demographic or climate forces.
+CONTEXTUAL GRAVITY RULE (KEY)
+When two or more headlines show equal structural strength, favor the one that:
+• Operates closer to the decision-making center of a society
+• Directly affects national policy formation or institutional practice
+• Originates from internal analytical or editorial discourse, not external observation
+This rule applies universally, regardless of language or country.
+SINGLE DECISION TEST (mandatory)
+Ask only:
+"Does this headline clarify how a system functions or how its future direction is being shaped, in a way that remains relevant after time passes?"
+• Yes or plausibly yes → SELECT
+• No → SKIP
+No secondary tests.
+AUTOMATIC EXCLUSIONS
+Skip always: • Crime, accidents, or scandals without institutional consequence
+• Sports, entertainment, lifestyle
+• Personal narratives without systemic implication
+• Repetition of already-settled facts
+OUTPUT SPEC (strict)
+Return only a JSON array.
+Each item must contain exactly: id
+category (one of the four lenses)
+reason (one concise sentence explaining the structural significance)
+No markdown.
+No commentary.
+No text outside JSON.
+Start with [ and end with ]."""
 
     user_prompt = f"""{prompt_text}"""
 
