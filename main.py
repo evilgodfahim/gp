@@ -21,8 +21,8 @@ URLS = [
 ]
 
 # Groq Configuration
-MODEL_NAME = "llama-3.3-70b-versatile"  # Best for analysis
-GROQ_API_KEY = os.environ["GEM"]  # Using existing secret name
+MODEL_NAME = "llama-3.3-70b-versatile"
+GROQ_API_KEY = os.environ["GEM"]
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 def save_xml(data, error_message=None):
@@ -90,6 +90,7 @@ def save_xml(data, error_message=None):
 def fetch_titles_only():
     all_articles = []
     seen_links = set()
+    seen_titles = set()
     now = datetime.now(timezone.utc)
     cutoff_time = now - timedelta(hours=24)
     
@@ -126,10 +127,17 @@ def fetch_titles_only():
                 link = item.find('link').text or ""
                 if not link or link in seen_links: 
                     continue
-                seen_links.add(link)
                 
                 title = item.find('title').text or "No Title"
                 title = title.strip()
+                
+                title_normalized = title.lower().strip()
+                if title_normalized in seen_titles:
+                    continue
+                
+                seen_links.add(link)
+                seen_titles.add(title_normalized)
+                
                 desc = item.find('description')
                 desc_text = desc.text if desc is not None else ""
 
@@ -144,103 +152,40 @@ def fetch_titles_only():
         except Exception:
             continue
 
-    print(f"✅ Loaded {len(all_articles)} candidate headlines", flush=True)
+    print(f"✅ Loaded {len(all_articles)} unique headlines (deduped)", flush=True)
     return all_articles
 
 def call_groq_analyzer(batch):
     prompt_list = [f"{a['id']}: {a['title']}" for a in batch]
     prompt_text = "\n".join(prompt_list)
 
-    system_prompt = """You are an ELITE intelligence analyst curating news for three distinct audiences:
-1. BCS (Bangladesh Civil Service) exam candidates
-2. Banking job exam aspirants  
-3. Geopolitical strategists & power analysts
+    system_prompt = """You are a Chief Information Filter. Your job: from a list of headlines, select only those that reveal structural change or sustained significance. Do not use keywords, recency, popularity, or external data. Judge linguistic pattern and systemic consequence only.
 
-Articles are in BANGLA (Bengali) and ENGLISH. You MUST understand both languages.
+TWO TYPES (internal classification) Type A — STRUCTURAL: explains how systems, power, money, institutions, or long-term social/technological/climatic forces operate or change.
+Type B — EPISODIC: isolated incidents, personal stories, sports/entertainment, crimes or accidents with no system-level implication.
+Select only Type A.
 
-YOUR MISSION: Identify articles that provide DECISIVE COMPETITIVE ADVANTAGE - information that creates knowledge asymmetry between those who read it and those who don't.
+FOUR LENSES (use these patterns; no others) Governance & Control
+— Rules, laws, enforcement, institutional shifts, authority transfer, administrative or judicial change.
+Economic & Resource Flows
+— Shifts in capital, trade, production, fiscal/monetary policy, systemic financial risk, resource allocation.
+Power Relations & Strategy
+— Diplomatic moves, alliances, coercion, military/security posture, shifts in strategic leverage.
+Ideas & Long-Term Trends
+— Editorial framing that changes debate, scientific/tech breakthroughs with policy effect, demographic or climate trends.
 
-═══════════════════════════════════════════════════════════════════
+SINGLE DECISION TEST (mandatory) Ask this exact question: "Does this headline explain how a system works or how it will change in a way that remains meaningful beyond immediate sensation?"
+If clearly yes or plausibly yes → SELECT.
+If no → SKIP.
+Do not ask additional questions.
 
-TIER 1: BCS/BANKING EXAM DOMINANCE (Highest Priority)
-▸ Government policy announcements, reforms, ordinances (সরকারি নীতি, সংস্কার)
-▸ Constitutional amendments, landmark Supreme Court rulings (সংবিধান, সুপ্রিম কোর্ট)
-▸ Budget announcements, fiscal/monetary policy shifts (বাজেট, আর্থিক নীতি, মুদ্রানীতি)
-▸ International treaties/agreements Bangladesh signed (আন্তর্জাতিক চুক্তি)
-▸ High-level appointments: Secretaries, Ambassadors, BB Governor (নিয়োগ)
-▸ Banking sector: Regulations, mergers, NPL policy, interest rates (ব্যাংকিং)
-▸ Economic indicators: GDP growth, inflation rate, forex reserves, remittance data (জিডিপি, মুদ্রাস্ফীতি, রিজার্ভ)
-▸ Mega infrastructure: Project approvals, funding, milestones (মেগা প্রকল্প)
-▸ Educational reforms, exam policy changes (শিক্ষা সংস্কার)
-▸ Administrative restructuring, new ministries/divisions (প্রশাসন)
-▸ Trade statistics, export-import data (রপ্তানি-আমদানি)
+AUTOMATIC EXCLUSIONS Always skip: routine crimes, single-person scandals, pure accidents without policy consequence, sports results, entertainment, lifestyle, and emotional or viral content with no systemic link.
 
-TIER 2: GEOPOLITICAL POWER INTELLIGENCE (Critical for Strategists)
-▸ Bangladesh bilateral dynamics: India, China, USA, Pakistan, Myanmar relations (ভারত, চীন)
-▸ Regional alliances: ASEAN, SAARC, BIMSTEC, QUAD developments
-▸ South Asian security architecture shifts
-▸ Trade wars, tariff changes, economic sanctions affecting region (বাণিজ্য যুদ্ধ, শুল্ক)
-▸ Energy geopolitics: LNG deals, oil agreements, renewable partnerships (এলএনজি, জ্বালানি)
-▸ Defense acquisitions, military exercises, arms deals (প্রতিরক্ষা, সামরিক)
-▸ Diplomatic incidents, embassy closures, ambassador recalls
-▸ UN Security Council decisions on regional conflicts
-▸ World Bank/IMF/ADB loan conditions or policy prescriptions
-▸ Water diplomacy: Teesta, Ganges, Brahmaputra agreements (তিস্তা, গঙ্গা, ব্রহ্মপুত্র)
-▸ Rohingya crisis developments with policy impact (রোহিঙ্গা)
-▸ Belt & Road Initiative projects in Bangladesh/region (বিআরআই)
-▸ Indo-Pacific strategy developments affecting Bangladesh
+OUTPUT SPEC (strict) Return only a JSON array. Each element must be an object with exactly: id, category, reason.
+category must be one of: "Governance & Control", "Economic & Resource Flows", "Power Relations & Strategy", "Ideas & Long-Term Trends".
+reason must be one short sentence stating the structural relevance. No extra fields, no commentary, no markdown, no text outside the JSON. Start with [ and end with ]."""
 
-TIER 3: STRATEGIC FORESIGHT (Competitive Edge)
-▸ Breakthrough scientific research with policy implications (বৈজ্ঞানিক আবিষ্কার)
-▸ Climate agreements, carbon trading mechanisms (জলবায়ু চুক্তি)
-▸ National cybersecurity incidents, data breach policies (সাইবার নিরাপত্তা)
-▸ Major corporate mergers/bankruptcies affecting national economy
-▸ Digital Bangladesh updates: e-governance, fintech regulations (ডিজিটাল বাংলাদেশ)
-▸ Demographic shifts with economic impact (জনসংখ্যা)
-▸ Agricultural policy changes, food security measures (কৃষি নীতি, খাদ্য নিরাপত্তা)
-
-═══════════════════════════════════════════════════════════════════
-
-ABSOLUTE REJECTIONS:
-✗ Sports: Cricket/football matches, player transfers (ক্রিকেট, ফুটবল)
-✗ Entertainment: Cinema, music, celebrity news (সিনেমা, গান)
-✗ Crime: Local incidents WITHOUT policy impact (অপরাধ, দুর্ঘটনা)
-✗ Human interest: Viral stories, feel-good content (ভাইরাল)
-✗ Lifestyle: Fashion, food trends, astrology (ফ্যাশন, রাশিফল)
-✗ Generic editorials without NEW concrete facts
-
-EDITORIAL FILTERING:
-SELECT editorials ONLY IF they contain NEW policy announcements, concrete statistics, or confirmed agreements.
-REJECT generic commentary on well-known issues.
-
-EVALUATION QUESTIONS:
-1. "Will this FACT appear in BCS/Banking exams?"
-2. "Does this shift power balances or reveal strategic developments?"
-3. "Will competitors have blind spots without this?"
-4. "Is this NEW information or rehashing old news?"
-
-If answer to ANY question is "No" → REJECT
-
-Be RUTHLESSLY selective: If <8% qualify, that's CORRECT."""
-
-    user_prompt = f"""Analyze these Bangla/English newspaper headlines and return a JSON array of selected article IDs.
-
-ARTICLES:
-{prompt_text}
-
-You MUST return ONLY a valid JSON array (not an object) in this EXACT format:
-[
-  {{"id": 15, "category": "Monetary Policy", "reason": "BB rate cut to 8.5% - direct exam fact"}},
-  {{"id": 42, "category": "Indo-Pacific Geopolitics", "reason": "BD-India defense pact signals China counterbalancing"}}
-]
-
-CRITICAL RULES:
-- Return a JSON array directly, NOT wrapped in an object
-- Do NOT add explanatory text before or after the JSON
-- If nothing qualifies, return: []
-- Be extremely selective - only 5-10% should qualify
-
-Begin your response with [ and end with ]"""
+    user_prompt = f"""{prompt_text}"""
 
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -253,8 +198,8 @@ Begin your response with [ and end with ]"""
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "temperature": 0.1,
-        "max_tokens": 2000
+        "temperature": 0.3,
+        "max_tokens": 3000
     }
 
     try:
@@ -266,32 +211,26 @@ Begin your response with [ and end with ]"""
             
             print(f"    📥 API Response received ({len(content)} chars)", flush=True)
             
-            # Remove any markdown code blocks if present
             if content.startswith("```"):
                 content = content.split("```")[1]
                 if content.startswith("json"):
                     content = content[4:]
                 content = content.strip()
             
-            # Handle both direct array and wrapped object responses
             try:
                 parsed = json.loads(content)
                 
-                # If it's a dict with an array inside, extract it
                 if isinstance(parsed, dict):
-                    # Check for error messages from the model
                     if 'error' in parsed:
                         print(f"    ❌ Model returned error: {parsed.get('error', 'Unknown')}", flush=True)
                         print(f"    📄 Full response: {content[:300]}", flush=True)
                         return []
                     
-                    # Look for common keys like 'selections', 'articles', 'results'
                     for key in ['selections', 'articles', 'results', 'selected', 'data']:
                         if key in parsed and isinstance(parsed[key], list):
                             print(f"    ✓ Found {len(parsed[key])} selections in '{key}' field", flush=True)
                             return parsed[key]
                     
-                    # If dict doesn't have expected keys, return empty
                     print(f"    ⚠️ Response is dict but no array found. Keys: {list(parsed.keys())[:5]}", flush=True)
                     print(f"    📄 Sample: {str(parsed)[:200]}", flush=True)
                     return []
@@ -358,13 +297,9 @@ def main():
             print("\n✅ Script completed successfully (no articles to process)", flush=True)
             return
 
-        # Groq Free Tier: 30 RPM, 14,400 RPD, 6,000 TPM
-        # With Llama 3.3 70B: ~4k tokens input + ~500 output per batch
-        # We can process 150 articles per batch comfortably
         BATCH_SIZE = 150
         batches = [articles[i:i + BATCH_SIZE] for i in range(0, len(articles), BATCH_SIZE)]
         
-        # Limit to 10 batches to stay well under daily limit
         MAX_BATCHES = 10
         if len(batches) > MAX_BATCHES:
             print(f"⚠️ Found {len(batches)} batches, limiting to {MAX_BATCHES}", flush=True)
@@ -374,12 +309,16 @@ def main():
             articles_to_process = articles
         
         selected_articles = []
+        seen_selected_links = set()
+        seen_selected_titles = set()
+        
         print(f"\n🚀 Processing {len(batches)} batches (size={BATCH_SIZE}) with {MODEL_NAME}...", flush=True)
         print(f"⚡ Groq Free Tier: 30 RPM | 6k TPM | 14.4k RPD - Lightning fast!", flush=True)
         print(f"📊 Strategy: Process up to {len(articles_to_process)} articles\n", flush=True)
 
         quota_exhausted = False
         batches_processed = 0
+        duplicates_skipped = 0
         
         for i, batch in enumerate(batches):
             if quota_exhausted:
@@ -395,20 +334,34 @@ def main():
                 quota_exhausted = True
                 break
             
+            batch_added = 0
             for d in decisions:
                 try:
                     original = next((x for x in batch if x["id"] == d["id"]), None)
-                    if original:
-                        original['category'] = d.get('category', 'Priority')
-                        original['reason'] = d.get('reason', 'Strategic importance')
-                        selected_articles.append(original)
+                    if not original:
+                        continue
+                    
+                    link = original['link']
+                    title_normalized = original['title'].lower().strip()
+                    
+                    if link in seen_selected_links or title_normalized in seen_selected_titles:
+                        duplicates_skipped += 1
+                        continue
+                    
+                    original['category'] = d.get('category', 'Priority')
+                    original['reason'] = d.get('reason', 'Strategic importance')
+                    selected_articles.append(original)
+                    
+                    seen_selected_links.add(link)
+                    seen_selected_titles.add(title_normalized)
+                    batch_added += 1
+                    
                 except: 
                     continue
             
             batches_processed += 1
-            print(f"    ✓ Selected {len(decisions)} from this batch", flush=True)
+            print(f"    ✓ Selected {len(decisions)} articles, added {batch_added} (skipped {len(decisions) - batch_added} duplicates)", flush=True)
             
-            # Groq is FAST - only need 2 second delays (30 RPM = 2 sec minimum)
             if i < len(batches) - 1:
                 print(f"    ⏸️  Waiting 3 seconds (rate limit safety)...", flush=True)
                 time.sleep(3)
@@ -418,6 +371,8 @@ def main():
         print(f"   Total articles available: {len(articles)}", flush=True)
         print(f"   Articles analyzed: {len(articles_to_process)}", flush=True)
         print(f"   Articles selected: {len(selected_articles)} ({selection_rate}% pass rate)", flush=True)
+        if duplicates_skipped > 0:
+            print(f"   Duplicates removed: {duplicates_skipped}", flush=True)
         print(f"   Batches processed: {batches_processed}/{MAX_BATCHES}", flush=True)
         print(f"   Daily quota used: ~{batches_processed}/14400 requests", flush=True)
         
