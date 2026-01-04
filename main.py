@@ -72,9 +72,6 @@ FYRA_API_URL = "https://api.fyra.im/v1/chat/completions"
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
 GOOGLE_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
-# Semantic similarity threshold for deduplication
-SIMILARITY_THRESHOLD = 0.35  # Distance threshold for hierarchical clustering (1 - cosine_similarity)
-
 # --- SYSTEM PROMPT ---
 SYSTEM_PROMPT = """You are a Chief Information Filter.
 Your task is to select headlines with structural and lasting significance.
