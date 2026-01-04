@@ -13,19 +13,11 @@ import numpy as np
 MAX_FEED_ITEMS = 100
 
 URLS = [
-    "https://evilgodfahim.github.io/sci/daily_feed.xml",
-    "https://evilgodfahim.github.io/bdlb/final.xml",
-    "https://evilgodfahim.github.io/fp/final.xml",
-    "https://evilgodfahim.github.io/bdl/final.xml",
-    "https://evilgodfahim.github.io/int/final.xml",
-    "https://evilgodfahim.github.io/gpd/daily_feed.xml",
+     "https://evilgodfahim.github.io/gpd/daily_feed.xml",
     "https://evilgodfahim.github.io/daily/daily_master.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed_2.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed.xml",
-    "https://evilgodfahim.github.io/edit/daily_feed.xml",
-    "https://evilgodfahim.github.io/ds/printversion.xml",
-    "https://politepaul.com/fd/BaUjoEn6s1Rx.xml",
-    "https://politepaul.com/fd/cjcFELwr80sj.xml"
+    "https://evilgodfahim.github.io/edit/daily_feed.xml"
 ]
 
 MODELS = [
