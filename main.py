@@ -25,7 +25,10 @@ URLS = [
     "https://evilgodfahim.github.io/daily/daily_master.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed_2.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed.xml",
-    "https://evilgodfahim.github.io/edit/daily_feed.xml"
+    "https://evilgodfahim.github.io/edit/daily_feed.xml",
+"https://evilgodfahim.github.io/ds/printversion.xml",
+"https://politepaul.com/fd/BaUjoEn6s1Rx.xml",
+"https://politepaul.com/fd/cjcFELwr80sj.xml"
 ]
 
 MODELS = [
