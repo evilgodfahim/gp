@@ -1,5 +1,2 @@
-google-generativeai
 requests
 lxml
-requests
-
