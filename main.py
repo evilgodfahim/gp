@@ -14,6 +14,7 @@ MAX_FEED_ITEMS = 100  # <--- Limit before spilling to overflow file
 
 URLS = [
     "https://evilgodfahim.github.io/sci/daily_feed.xml",
+"https://evilgodfahim.github.io/bdlb/final.xml",
     "https://evilgodfahim.github.io/fp/final.xml",
     "https://evilgodfahim.github.io/bdl/final.xml",
     "https://evilgodfahim.github.io/int/final.xml",
