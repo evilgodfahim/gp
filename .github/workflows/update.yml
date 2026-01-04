@@ -1,7 +1,7 @@
 name: Daily Article Filter
 on:
   schedule:
-    # 06:00 UTC is 12:00 PM Bangladesh Standard Time
+    # 05:00 UTC is 11:00 AM Bangladesh Standard Time
     - cron: '0 5 * * *'
   workflow_dispatch: # Allows manual trigger
 
@@ -30,9 +30,10 @@ jobs:
       - name: Install Libraries
         run: pip install -r requirements.txt
 
-      - name: Run Gemini Filter
+      - name: Run Multi-API Filter
         env:
           GEM: ${{ secrets.GEM }}
+          OP: ${{ secrets.OP }}
         run: python main.py
 
       - name: Push Filtered XML
