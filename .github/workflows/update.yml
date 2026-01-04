@@ -19,6 +19,14 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Cache Transformer Model
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/torch/sentence_transformers
+          key: sentence-transformers-all-mpnet-base-v2-${{ runner.os }}
+          restore-keys: |
+            sentence-transformers-all-mpnet-base-v2-
+
       - name: Install Libraries
         run: pip install -r requirements.txt
 
