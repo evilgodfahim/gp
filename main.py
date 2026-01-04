@@ -10,10 +10,10 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 # --- Configuration ---
-MAX_FEED_ITEMS = 100  # <--- NEW: Limit before spilling to overflow file
+MAX_FEED_ITEMS = 100  # <--- Limit before spilling to overflow file
 
 URLS = [
-    "https://evilgodfahim.github.io/bdlb/final.xml",
+    "https://evilgodfahim.github.io/sci/daily_feed.xml",
     "https://evilgodfahim.github.io/fp/final.xml",
     "https://evilgodfahim.github.io/bdl/final.xml",
     "https://evilgodfahim.github.io/int/final.xml",
@@ -24,7 +24,8 @@ URLS = [
     "https://evilgodfahim.github.io/edit/daily_feed.xml"
 ]
 
-# Optimized batch sizes (25) to prevent JSON cutoffs/413 errors
+# YOUR ORIGINAL MODELS
+# Note: Batch sizes kept at 25 to prevent "413 Payload" and JSON cutoff errors.
 MODELS = [
     {"name": "llama-3.3-70b-versatile", "display": "Llama-3.3-70B", "batch_size": 25},
     {"name": "qwen/qwen3-32b", "display": "Qwen-3-32B", "batch_size": 25},
@@ -34,35 +35,60 @@ MODELS = [
 GROQ_API_KEY = os.environ.get("GEM")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+# --- YOUR EXACT ORIGINAL PROMPT (RESTORED) ---
 SYSTEM_PROMPT = """You are a Chief Information Filter.
 Your task is to select headlines with structural and lasting significance.
 You do not evaluate importance by popularity, novelty, or emotion.
 You evaluate how information explains or alters systems.
-
-TWO INFORMATION TYPES:
-1. STRUCTURAL (Select these): Explains how power, institutions, or economies operate/change.
-2. EPISODIC (Ignore these): Isolated events, crime, sports, individual actions.
-
-OUTPUT SPEC:
-Return ONLY a JSON array. 
-Each item must contain exactly: 
-- id (integer from input)
-- category (Governance, Economics, Power Relations, or Ideas)
-- reason (one concise sentence)
-
-Start with [ and end with ]. No markdown formatting.
-"""
+Judgment must rely only on linguistic structure, implied scope, and systemic consequence.
+TWO INFORMATION TYPES (internal use)
+STRUCTURAL
+— Explains how power, institutions, economies, or long-term social/strategic forces operate or change.
+EPISODIC
+— Describes isolated events, individual actions, or short-lived situations without system impact.
+Select only STRUCTURAL.
+FOUR STRUCTURAL LENSES (exclusive)
+GOVERNANCE & CONTROL
+Rules, enforcement, institutional balance, authority transfer, administrative or judicial change.
+ECONOMIC & RESOURCE FLOWS
+Capital movement, trade structure, production capacity, fiscal or monetary direction, systemic risk.
+POWER RELATIONS & STRATEGY
+Strategic alignment, coercion, deterrence, security posture, long-term rivalry or cooperation.
+IDEAS, ARGUMENTS & LONG-TERM TRENDS
+Editorial reasoning, policy debate, scientific or technological trajectories, demographic or climate forces.
+CONTEXTUAL GRAVITY RULE (KEY)
+When two or more headlines show equal structural strength, favor the one that:
+• Operates closer to the decision-making center of a society
+• Directly affects national policy formation or institutional practice
+• Originates from internal analytical or editorial discourse, not external observation
+This rule applies universally, regardless of language or country.
+SINGLE DECISION TEST (mandatory)
+Ask only:
+"Does this headline clarify how a system functions or how its future direction is being shaped, in a way that remains relevant after time passes?"
+• Yes or plausibly yes → SELECT
+• No → SKIP
+No secondary tests.
+AUTOMATIC EXCLUSIONS
+Skip always: • Crime, accidents, or scandals without institutional consequence
+• Sports, entertainment, lifestyle
+• Personal narratives without systemic implication
+• Repetition of already-settled facts
+OUTPUT SPEC (strict)
+Return only a JSON array.
+Each item must contain exactly: id
+category (one of the four lenses)
+reason (one concise sentence explaining the structural significance)
+No markdown.
+No commentary.
+No text outside JSON.
+Start with [ and end with ]."""
 
 def save_xml(data, filename, error_message=None):
-    """
-    Saves a list of articles to an RSS XML file.
-    """
     os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
     
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
     
-    # Dynamic title based on filename
     feed_title = "Elite News Feed"
     if "overflow" in filename:
         feed_title += " (Overflow)"
@@ -78,7 +104,6 @@ def save_xml(data, filename, error_message=None):
         ET.SubElement(item, "description").text = f"Script failed: {error_message}"
         ET.SubElement(item, "pubDate").text = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0600")
     elif not data:
-        # If empty (overflow or no news), add a placeholder so RSS readers don't complain
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = "End of Feed"
         ET.SubElement(item, "description").text = "No additional articles in this feed."
@@ -165,14 +190,12 @@ def extract_json_from_text(text):
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-
     try:
         match = re.search(r'(\[.*\])', text, re.DOTALL)
         if match:
             return json.loads(match.group(1))
     except json.JSONDecodeError:
         pass
-        
     return None
 
 def call_model(model_info, batch):
@@ -188,9 +211,9 @@ def call_model(model_info, batch):
         "model": model_info["name"],
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Here are the headlines:\n{prompt_text}"}
+            {"role": "user", "content": prompt_text}
         ],
-        "temperature": 0.1,
+        "temperature": 0.3,
         "max_tokens": 4096
     }
 
@@ -203,6 +226,7 @@ def call_model(model_info, batch):
             
             if response.status_code == 200:
                 content = response.json()['choices'][0]['message']['content'].strip()
+                # Clean code blocks
                 if content.startswith("```"):
                     content = content.replace("```json", "").replace("```", "").strip()
 
@@ -282,7 +306,7 @@ def semantic_deduplication(articles, similarity_threshold=0.55):
 
 def main():
     print("=" * 60, flush=True)
-    print("Elite News Curator - BULLETPROOF EDITION + OVERFLOW", flush=True)
+    print("Elite News Curator - FINAL PRODUCTION BUILD", flush=True)
     print("=" * 60, flush=True)
 
     if not GROQ_API_KEY:
@@ -347,23 +371,17 @@ def main():
     # Deduplication
     final_articles = semantic_deduplication(final_articles)
     
-    # --- NEW: SPLIT OUTPUT LOGIC ---
+    # --- SPLIT OUTPUT LOGIC ---
     print(f"\nRESULTS:", flush=True)
     print(f"   Analyzed: {len(articles)} headlines", flush=True)
     print(f"   Selected: {len(final_articles)} unique articles", flush=True)
     
     if len(final_articles) > MAX_FEED_ITEMS:
         print(f"   [!] Feed Limit Exceeded ({len(final_articles)} > {MAX_FEED_ITEMS}). Splitting output.", flush=True)
-        
-        # Primary File (Top 100)
         save_xml(final_articles[:MAX_FEED_ITEMS], "filtered_feed.xml")
-        
-        # Overflow File (The Rest)
         save_xml(final_articles[MAX_FEED_ITEMS:], "filtered_feed_overflow.xml")
     else:
-        # Normal Case
         save_xml(final_articles, "filtered_feed.xml")
-        # Ensure overflow file is cleared/empty
         save_xml([], "filtered_feed_overflow.xml")
 
 if __name__ == "__main__":
