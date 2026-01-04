@@ -17,17 +17,14 @@ URLS = [
     "https://evilgodfahim.github.io/daily/daily_master.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed_2.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed.xml",
-    "https://evilgodfahim.github.io/edit/daily_feed.xml",
-"https://evilgodfahim.github.io/bint/final.xml",
-"https://evilgodfahim.github.io/bdlb/final.xml",
-"https://evilgodfahim.github.io/bint/final_extra.xml"  
+    "https://evilgodfahim.github.io/edit/daily_feed.xml"
 ]
 
-# Groq Configuration - 3 Model Ensemble
+# Groq Configuration - 3 Model Ensemble with optimized batch sizes
 MODELS = [
-    {"name": "llama-3.3-70b-versatile", "display": "Llama-3.3-70B"},
-    {"name": "qwen/qwen3-32b", "display": "Qwen-3-32B"},
-    {"name": "openai/gpt-oss-120b", "display": "GPT-OSS-120B"}
+    {"name": "llama-3.3-70b-versatile", "display": "Llama-3.3-70B", "batch_size": 150},
+    {"name": "qwen/qwen3-32b", "display": "Qwen-3-32B", "batch_size": 50},  # Smaller for 413 errors
+    {"name": "openai/gpt-oss-120b", "display": "GPT-OSS-120B", "batch_size": 100}
 ]
 GROQ_API_KEY = os.environ["GEM"]
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -219,7 +216,7 @@ def fetch_titles_only():
     print(f"Loaded {len(all_articles)} unique headlines (deduped)", flush=True)
     return all_articles
 
-def call_model(model_info, batch):
+def call_model(model_info, batch, retry_on_429=True):
     prompt_list = [f"{a['id']}: {a['title']}" for a in batch]
     prompt_text = "\n".join(prompt_list)
 
@@ -235,64 +232,89 @@ def call_model(model_info, batch):
             {"role": "user", "content": prompt_text}
         ],
         "temperature": 0.3,
-        "max_tokens": 3000
+        "max_tokens": 4000  # Increased for larger responses
     }
 
-    try:
-        response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=60)
-        
-        if response.status_code == 200:
-            result = response.json()
-            content = result['choices'][0]['message']['content'].strip()
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=90)
             
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-            
-            try:
-                parsed = json.loads(content)
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content'].strip()
                 
-                if isinstance(parsed, dict):
-                    if 'error' in parsed:
-                        print(f"    [{model_info['display']}] Model returned error", flush=True)
+                if content.startswith("```"):
+                    content = content.split("```")[1]
+                    if content.startswith("json"):
+                        content = content[4:]
+                    content = content.strip()
+                
+                try:
+                    parsed = json.loads(content)
+                    
+                    if isinstance(parsed, dict):
+                        if 'error' in parsed:
+                            print(f"    [{model_info['display']}] Model returned error", flush=True)
+                            return []
+                        
+                        for key in ['selections', 'articles', 'results', 'selected', 'data']:
+                            if key in parsed and isinstance(parsed[key], list):
+                                return parsed[key]
+                        
                         return []
-                    
-                    for key in ['selections', 'articles', 'results', 'selected', 'data']:
-                        if key in parsed and isinstance(parsed[key], list):
-                            return parsed[key]
-                    
+                        
+                    elif isinstance(parsed, list):
+                        return parsed
+                    else:
+                        return []
+                        
+                except json.JSONDecodeError:
+                    print(f"    [{model_info['display']}] JSON parse error (attempt {attempt+1})", flush=True)
+                    if attempt < max_retries - 1:
+                        time.sleep(5)
+                        continue
                     return []
-                    
-                elif isinstance(parsed, list):
-                    return parsed
+            
+            elif response.status_code == 429:
+                if retry_on_429 and attempt < max_retries - 1:
+                    wait_time = 30 * (attempt + 1)
+                    print(f"    [{model_info['display']}] Rate limit (429) - waiting {wait_time}s...", flush=True)
+                    time.sleep(wait_time)
+                    continue
                 else:
+                    print(f"    [{model_info['display']}] Rate limit (429) - skipping", flush=True)
                     return []
-                    
-            except json.JSONDecodeError:
-                print(f"    [{model_info['display']}] JSON parse error", flush=True)
+            
+            elif response.status_code == 413:
+                print(f"    [{model_info['display']}] Payload too large (413) - batch size too big", flush=True)
                 return []
-        
-        elif response.status_code == 429:
-            print(f"    [{model_info['display']}] Rate limit (429)", flush=True)
-            return []
-        
-        elif response.status_code >= 500:
-            print(f"    [{model_info['display']}] Server Error {response.status_code}", flush=True)
-            return []
-        
-        else:
-            print(f"    [{model_info['display']}] API Error {response.status_code}", flush=True)
-            return []
+            
+            elif response.status_code >= 500:
+                if attempt < max_retries - 1:
+                    print(f"    [{model_info['display']}] Server Error {response.status_code} - retrying...", flush=True)
+                    time.sleep(10)
+                    continue
+                else:
+                    print(f"    [{model_info['display']}] Server Error {response.status_code}", flush=True)
+                    return []
+            
+            else:
+                print(f"    [{model_info['display']}] API Error {response.status_code}", flush=True)
+                return []
 
-    except requests.exceptions.Timeout:
-        print(f"    [{model_info['display']}] Timeout", flush=True)
-        return []
-        
-    except Exception as e:
-        print(f"    [{model_info['display']}] Error: {str(e)[:60]}", flush=True)
-        return []
+        except requests.exceptions.Timeout:
+            print(f"    [{model_info['display']}] Timeout (attempt {attempt+1})", flush=True)
+            if attempt < max_retries - 1:
+                time.sleep(10)
+                continue
+            return []
+            
+        except Exception as e:
+            print(f"    [{model_info['display']}] Error: {str(e)[:60]}", flush=True)
+            return []
+    
+    return []
 
 def main():
     print("=" * 70, flush=True)
@@ -313,54 +335,72 @@ def main():
             print("\nScript completed successfully (no articles to process)", flush=True)
             return
 
-        BATCH_SIZE = 150
-        batches = [articles[i:i + BATCH_SIZE] for i in range(0, len(articles), BATCH_SIZE)]
+        # Create model-specific batches
+        model_batches = {}
+        for model_info in MODELS:
+            batch_size = model_info['batch_size']
+            model_batches[model_info['name']] = [
+                articles[i:i + batch_size] for i in range(0, len(articles), batch_size)
+            ]
         
+        # Use the largest number of batches (from smallest batch size model)
+        max_batch_count = max(len(batches) for batches in model_batches.values())
         MAX_BATCHES = 10
-        if len(batches) > MAX_BATCHES:
-            print(f"Found {len(batches)} batches, limiting to {MAX_BATCHES}", flush=True)
-            batches = batches[:MAX_BATCHES]
-            articles_to_process = articles[:MAX_BATCHES * BATCH_SIZE]
-        else:
-            articles_to_process = articles
         
-        # Dictionary to track selections: {article_id: {models: [], decisions: []}}
+        if max_batch_count > MAX_BATCHES:
+            print(f"Found up to {max_batch_count} batches per model, limiting to {MAX_BATCHES}", flush=True)
+        
+        # Dictionary to track selections
         selections_map = {}
         
-        print(f"\nProcessing {len(batches)} batches (size={BATCH_SIZE}) with 3-model ensemble...", flush=True)
-        print(f"Strategy: Union - keep all unique selections from any model\n", flush=True)
+        print(f"\nProcessing articles with 3-model ensemble...", flush=True)
+        print(f"Batch sizes: Llama=150, Qwen=50, GPT=100", flush=True)
+        print(f"Strategy: Union - keep all unique selections from any model", flush=True)
+        print(f"Runtime target: ~10 minutes with extended delays\n", flush=True)
 
         batches_processed = 0
         
-        for i, batch in enumerate(batches):
-            print(f"  Batch {i+1}/{len(batches)} ({len(batch)} articles)...", flush=True)
+        # Process batch by batch, all models for each batch
+        for batch_idx in range(min(MAX_BATCHES, max_batch_count)):
+            print(f"  Batch Group {batch_idx+1}...", flush=True)
             
-            # Call all 3 models
+            # Call each model with its appropriate batch
             for model_info in MODELS:
-                print(f"    [{model_info['display']}] Processing...", flush=True)
+                model_name = model_info['name']
+                model_batches_list = model_batches[model_name]
+                
+                if batch_idx >= len(model_batches_list):
+                    print(f"    [{model_info['display']}] No more batches", flush=True)
+                    continue
+                
+                batch = model_batches_list[batch_idx]
+                print(f"    [{model_info['display']}] Processing {len(batch)} articles...", flush=True)
+                
                 decisions = call_model(model_info, batch)
                 print(f"    [{model_info['display']}] Selected {len(decisions)} articles", flush=True)
                 
                 # Store decisions
                 for d in decisions:
                     article_id = d.get('id')
-                    if article_id not in selections_map:
-                        selections_map[article_id] = {
-                            'models': [],
-                            'decisions': []
-                        }
-                    selections_map[article_id]['models'].append(model_info['display'])
-                    selections_map[article_id]['decisions'].append(d)
+                    if article_id is not None and article_id < len(articles):
+                        if article_id not in selections_map:
+                            selections_map[article_id] = {
+                                'models': [],
+                                'decisions': []
+                            }
+                        selections_map[article_id]['models'].append(model_info['display'])
+                        selections_map[article_id]['decisions'].append(d)
                 
-                # Small delay between models
-                time.sleep(2)
+                # Longer delay between models (10 seconds)
+                print(f"    Waiting 10 seconds...", flush=True)
+                time.sleep(10)
             
             batches_processed += 1
             
-            # Delay between batches
-            if i < len(batches) - 1:
-                print(f"    Waiting 5 seconds before next batch...", flush=True)
-                time.sleep(5)
+            # Extended delay between batch groups (20 seconds)
+            if batch_idx < min(MAX_BATCHES, max_batch_count) - 1:
+                print(f"    Batch group complete. Waiting 20 seconds before next group...\n", flush=True)
+                time.sleep(20)
 
         # Build final article list with deduplication
         final_articles = []
@@ -371,7 +411,7 @@ def main():
         
         for article_id, selection_info in selections_map.items():
             # Find original article
-            original = next((x for x in articles_to_process if x["id"] == article_id), None)
+            original = next((x for x in articles if x["id"] == article_id), None)
             if not original:
                 continue
             
@@ -398,7 +438,7 @@ def main():
         total_selections = len(selections_map)
         unique_articles = len(final_articles)
         duplicates_removed = total_selections - unique_articles
-        selection_rate = (unique_articles * 100 // len(articles_to_process)) if articles_to_process else 0
+        selection_rate = (unique_articles * 100 // len(articles)) if articles else 0
         
         # Model agreement statistics
         model_counts = {}
@@ -408,7 +448,7 @@ def main():
         
         print(f"\nRESULTS:", flush=True)
         print(f"   Total articles available: {len(articles)}", flush=True)
-        print(f"   Articles analyzed: {len(articles_to_process)}", flush=True)
+        print(f"   Articles analyzed: {len(articles)}", flush=True)
         print(f"   Total selections (all models): {total_selections}", flush=True)
         print(f"   Unique articles selected: {unique_articles} ({selection_rate}% of analyzed)", flush=True)
         if duplicates_removed > 0:
@@ -418,8 +458,8 @@ def main():
         for count in sorted(model_counts.keys(), reverse=True):
             print(f"      {count} model(s): {model_counts[count]} articles", flush=True)
         
-        print(f"\n   Batches processed: {batches_processed}/{MAX_BATCHES}", flush=True)
-        print(f"   Total API calls: ~{batches_processed * 3} ({batches_processed} batches × 3 models)", flush=True)
+        print(f"\n   Batch groups processed: {batches_processed}/{MAX_BATCHES}", flush=True)
+        print(f"   Total API calls: ~{batches_processed * 3} ({batches_processed} groups × 3 models)", flush=True)
         print(f"   Daily quota used: ~{batches_processed * 3}/14400 requests", flush=True)
         
         save_xml(final_articles)
