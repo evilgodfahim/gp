@@ -55,6 +55,12 @@ MODELS = [
         "display": "DeepSeek-V3.1",
         "batch_size": 50,
         "api": "fyra"
+    },
+    {
+        "name": "mistral-small-latest",
+        "display": "Mistral-Small",
+        "batch_size": 40,
+        "api": "mistral"
     }
 ]
 
@@ -62,10 +68,12 @@ MODELS = [
 GROQ_API_KEY = os.environ.get("GEM")
 OPENROUTER_API_KEY = os.environ.get("OP")
 FYRA_API_KEY = os.environ.get("FRY")
+MISTRAL_API_KEY = os.environ.get("GEM2")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 FYRA_API_URL = "https://api.fyra.im/v1/chat/completions"
+MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
 
 # Semantic similarity threshold for deduplication
 SIMILARITY_THRESHOLD = 0.35  # Distance threshold for hierarchical clustering (1 - cosine_similarity)
@@ -273,6 +281,13 @@ def call_model(model_info, batch):
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+    elif api_type == "mistral":
+        api_url = MISTRAL_API_URL
+        api_key = MISTRAL_API_KEY
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
     else:  # groq
         api_url = GROQ_API_URL
         api_key = GROQ_API_KEY
@@ -459,6 +474,11 @@ def main():
     needs_fyra = any(m.get("api") == "fyra" for m in MODELS)
     if needs_fyra and not FYRA_API_KEY:
         print("::error::FRY environment variable is missing!", flush=True)
+        sys.exit(1)
+    
+    needs_mistral = any(m.get("api") == "mistral" for m in MODELS)
+    if needs_mistral and not MISTRAL_API_KEY:
+        print("::error::GEM2 environment variable is missing!", flush=True)
         sys.exit(1)
 
     articles = fetch_titles_only()
