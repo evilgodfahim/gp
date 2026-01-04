@@ -17,7 +17,8 @@ URLS = [
     "https://evilgodfahim.github.io/daily/daily_master.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed_2.xml",
     "https://evilgodfahim.github.io/bdit/daily_feed.xml",
-    "https://evilgodfahim.github.io/edit/daily_feed.xml"
+    "https://evilgodfahim.github.io/edit/daily_feed.xml",
+"https://evilgodfahim.github.io/bdlb/final.xml"
 ]
 
 # Groq Configuration - 3 Model Ensemble with optimized batch sizes
