@@ -61,13 +61,13 @@ MODELS = [
 # API Keys and URLs
 GROQ_API_KEY = os.environ.get("GEM")
 OPENROUTER_API_KEY = os.environ.get("OP")
-FYRA_API_KEY = os.environ.get("FRY")
+DEEPSEEK_API_KEY = os.environ.get("FRY")
 MISTRAL_API_KEY = os.environ.get("GEM2")
 GOOGLE_API_KEY = os.environ.get("LAM")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-FYRA_API_URL = "https://Fyra.im/v1/chat/completions"
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
 GOOGLE_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -325,11 +325,9 @@ def call_model(model_info, batch):
             response = requests.post(api_url, headers=headers, json=payload, timeout=90)
 
             if response.status_code == 200:
-                # Handle different API response formats
                 try:
                     response_data = response.json()
                     
-                    # Check for error in response
                     if 'error' in response_data:
                         print(f"    [{model_info['display']}] API Error: {response_data.get('error', 'Unknown error')}", flush=True)
                         continue
@@ -337,20 +335,10 @@ def call_model(model_info, batch):
                     if api_type == "google":
                         content = response_data['candidates'][0]['content']['parts'][0]['text'].strip()
                     else:
-                        # Standard OpenAI format (works for deepseek, openrouter, groq, mistral)
                         content = response_data['choices'][0]['message']['content'].strip()
                     
                 except (KeyError, IndexError) as e:
                     print(f"    [{model_info['display']}] Response parse error: {e}", flush=True)
-                    continue.keys())}", flush=True)
-                            continue
-                    else:
-                        # Standard OpenAI format
-                        content = response_data['choices'][0]['message']['content'].strip()
-                    
-                except (KeyError, IndexError) as e:
-                    print(f"    [{model_info['display']}] Response parse error: {e}", flush=True)
-                    print(f"    Response keys: {list(response.json().keys())}", flush=True)
                     continue
 
                 if content.startswith("```"):
@@ -397,11 +385,6 @@ def main():
         print("::error::OP environment variable is missing!", flush=True)
         sys.exit(1)
 
-    needs_fyra = any(m.get("api") == "fyra" for m in MODELS)
-    if needs_fyra and not FYRA_API_KEY:
-        print("::error::FRY environment variable is missing!", flush=True)
-        sys.exit(1)
-    
     needs_deepseek = any(m.get("api") == "deepseek" for m in MODELS)
     if needs_deepseek and not DEEPSEEK_API_KEY:
         print("::error::FRY environment variable is missing!", flush=True)
