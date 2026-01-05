@@ -3,17 +3,18 @@ import requests
 import json
 import time
 
-# --- CONFIGURATION FROM PDF ---
-# Base URL: https://fyra.im/ (Page 4 of your PDF)
-BASE_URL = "https://fyra.im" 
-MODELS_ENDPOINT = f"{BASE_URL}/v1/models"
+# --- CONFIGURATION ---
+# Base URL from your PDF
+BASE_URL = "https://fyra.im"
 CHAT_ENDPOINT = f"{BASE_URL}/v1/chat/completions"
+MODELS_ENDPOINT = f"{BASE_URL}/v1/models"
 
+# The specific Kimi ID found in research
+TARGET_MODEL = "kimi-k2-instruct-0905"
 API_KEY = os.environ.get("FRY")
-USER_CLAIMED_ID = "deepseek-v3.1"
 
-def debug_fyra():
-    print(f"--- FYRA.IM DEEPSEEK DIAGNOSTIC ---")
+def debug_kimi():
+    print(f"--- FYRA.IM KIMI DIAGNOSTIC ---")
     
     if not API_KEY:
         print("::error:: FRY environment variable is missing!")
@@ -24,75 +25,60 @@ def debug_fyra():
         "Content-Type": "application/json"
     }
 
-    # --- STEP 1: FETCH THE ACTUAL API MODEL LIST ---
-    # This is the most important step. It tells us what the API *actually* calls the model.
-    print(f"\n[1] Querying API for valid Model IDs ({MODELS_ENDPOINT})...")
-    valid_deepseek_id = None
-    
+    # --- STEP 1: Verify Model Existence ---
+    print(f"\n[1] Checking if '{TARGET_MODEL}' is listed in API...")
     try:
         r = requests.get(MODELS_ENDPOINT, headers=headers, timeout=10)
-        
         if r.status_code == 200:
             data = r.json()
-            all_models = [m['id'] for m in data.get('data', [])]
+            all_ids = [m['id'] for m in data.get('data', [])]
             
-            # Filter for any model containing 'deepseek'
-            deepseek_models = [m for m in all_models if 'deepseek' in m.lower()]
+            # Search for ANY Kimi or Moonshot model
+            kimi_ids = [m for m in all_ids if 'kimi' in m.lower() or 'moonshot' in m.lower()]
             
             print(f"   ✅ API Connected.")
-            print(f"   📋 All DeepSeek IDs found in API: {json.dumps(deepseek_models, indent=2)}")
+            print(f"   📋 Kimi/Moonshot Models Found: {json.dumps(kimi_ids, indent=2)}")
             
-            if USER_CLAIMED_ID in deepseek_models:
-                print(f"   ✅ Your ID '{USER_CLAIMED_ID}' IS present in the API list.")
-                valid_deepseek_id = USER_CLAIMED_ID
-            elif deepseek_models:
-                valid_deepseek_id = deepseek_models[0]
-                print(f"   ⚠️ Your ID '{USER_CLAIMED_ID}' is NOT in the list.")
-                print(f"   👉 We will test with the valid ID found: '{valid_deepseek_id}'")
+            if TARGET_MODEL in all_ids:
+                print(f"   ✅ Exact match found for '{TARGET_MODEL}'")
+            elif kimi_ids:
+                print(f"   ⚠️ Exact match missing. Will try found ID: '{kimi_ids[0]}'")
+                # Optional: Uncomment to auto-switch
+                # TARGET_MODEL = kimi_ids[0]
             else:
-                print("   ❌ No models with 'deepseek' in the name found. (Hidden?)")
-                valid_deepseek_id = USER_CLAIMED_ID # Force try anyway
+                print(f"   ❌ No Kimi models found. Is it hidden?")
         else:
-            print(f"   ❌ Failed to list models: HTTP {r.status_code}")
-            print(f"   Raw: {r.text}")
-            valid_deepseek_id = USER_CLAIMED_ID
+            print(f"   ❌ Failed to list models: {r.status_code}")
 
     except Exception as e:
         print(f"   ❌ Connection failed: {e}")
-        return
 
-    # --- STEP 2: TEST CHAT (With User ID vs Valid ID) ---
-    ids_to_test = [USER_CLAIMED_ID]
-    if valid_deepseek_id and valid_deepseek_id != USER_CLAIMED_ID:
-        ids_to_test.append(valid_deepseek_id)
+    # --- STEP 2: Test Chat ---
+    print(f"\n[2] Testing Chat with ID: '{TARGET_MODEL}'...")
+    payload = {
+        "model": TARGET_MODEL,
+        "messages": [{"role": "user", "content": "Who created you? Reply in 1 sentence."}],
+        "temperature": 0.5
+    }
 
-    for model_id in ids_to_test:
-        print(f"\n[2] Testing Chat with ID: '{model_id}'...")
-        payload = {
-            "model": model_id,
-            "messages": [{"role": "user", "content": "Test."}],
-            "temperature": 0.5
-        }
-
-        try:
-            r = requests.post(CHAT_ENDPOINT, headers=headers, json=payload, timeout=30)
-            
-            print(f"   Status Code: {r.status_code}")
-            
-            # Fyra sometimes returns 200 OK containing an error object
-            if r.status_code == 200:
-                resp = r.json()
-                if 'error' in resp:
-                    print(f"   ❌ API ERROR (inside 200 OK): {resp['error']}")
-                elif 'choices' in resp:
-                    print(f"   ✅ SUCCESS! Model '{model_id}' works.")
-                    print(f"   Output: {resp['choices'][0]['message']['content']}")
-                    break # Stop if we found a working one
+    try:
+        r = requests.post(CHAT_ENDPOINT, headers=headers, json=payload, timeout=30)
+        
+        print(f"   Status Code: {r.status_code}")
+        
+        if r.status_code == 200:
+            resp = r.json()
+            if 'error' in resp:
+                print(f"   ❌ API ERROR (200 OK): {resp['error']}")
+            elif 'choices' in resp:
+                print(f"   ✅ SUCCESS! Output: {resp['choices'][0]['message']['content']}")
             else:
-                print(f"   ❌ HTTP ERROR: {r.text}")
+                print(f"   ⚠️ Unknown format: {resp.keys()}")
+        else:
+            print(f"   ❌ HTTP Error: {r.text}")
 
-        except Exception as e:
-            print(f"   ❌ Request Error: {e}")
+    except Exception as e:
+        print(f"   ❌ Request Error: {e}")
 
 if __name__ == "__main__":
-    debug_fyra()
+    debug_kimi()
