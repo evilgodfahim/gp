@@ -67,7 +67,7 @@ GOOGLE_API_KEY = os.environ.get("LAM")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-FYRA_API_URL = "https://api.fyra.im/v1/chat/completions"
+FYRA_API_URL = "https://Fyra.im/v1/chat/completions"
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
 GOOGLE_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
