@@ -452,7 +452,7 @@ def main():
     final_articles = []
     print(f"\nMerging (2+ model consensus required)...", flush=True)
     for aid, info in selections_map.items():
-        if len(info['models']) >= 2:  # At least 2 models must agree
+        if len(info['models']) >= 3:  # At least 2 models must agree
             original = articles[aid].copy()
             original['category'] = 'Priority'
             original['reason'] = 'Systemic Significance'
