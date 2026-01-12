@@ -2,13 +2,20 @@
 <rss version="2.0">
   <channel>
     <title>Elite News Feed (Overflow)</title>
-    <lastBuildDate>Sun, 11 Jan 2026 05:29:50 +0600</lastBuildDate>
+    <lastBuildDate>Mon, 12 Jan 2026 05:34:21 +0600</lastBuildDate>
     <link>https://github.com/evilgodfahim</link>
     <description>AI-curated structural news feed</description>
     <item>
-      <title>End of Feed</title>
-      <description>No additional articles in this feed.</description>
-      <pubDate>Sun, 11 Jan 2026 05:29:50 +0600</pubDate>
+      <title>South Asia: SAARC’s revival should be a diplomatic priority. [ en ]</title>
+      <link>https://en.prothomalo.com/opinion/op-ed/2an7315512</link>
+      <pubDate>Sun, 11 Jan 2026 04:02:15 +0000</pubDate>
+      <description>&lt;p&gt;&lt;b&gt;[Priority]&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;i&gt;Systemic Significance&lt;/i&gt;&lt;/p&gt;&lt;p&gt;&lt;small&gt;Selected by: Gemini-2.5-Flash-Lite, Kimi-K2-Instruct, Llama-3.3-70B, Mistral-Small, Qwen-3-32B, GPT-OSS-120B&lt;/small&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p&gt;South Asia: SAARC’s revival should be a diplomatic priority. [ en ]&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Electoral politics trapped in whirlpool of maneuvering. [ daily-sun ]</title>
+      <link>https://www.daily-sun.com/opinion/851057/electoral-politics-trapped-in-whirlpool-of-maneuvering</link>
+      <pubDate>Sun, 11 Jan 2026 03:30:42 +0000</pubDate>
+      <description>&lt;p&gt;&lt;b&gt;[Priority]&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;i&gt;Systemic Significance&lt;/i&gt;&lt;/p&gt;&lt;p&gt;&lt;small&gt;Selected by: Gemini-2.5-Flash-Lite, Kimi-K2-Instruct, Qwen-3-32B&lt;/small&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p&gt;Electoral politics trapped in whirlpool of maneuvering. [ daily-sun ]&lt;/p&gt;</description>
     </item>
   </channel>
 </rss>
