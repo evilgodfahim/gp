@@ -20,7 +20,7 @@ MODELS = [
     {
         "name": "gemini-2.0-flash-lite",
         "display": "Gemini-2.0-Flash-Lite",
-        "batch_size": 100,
+        "batch_size": 50,
         "api": "google"
     }
 ]
@@ -150,7 +150,7 @@ def fetch_titles_only():
     all_articles = []
     seen_links = set()
     now = datetime.now(timezone.utc)
-    cutoff_time = now - timedelta(hours=48)  # Extended to 48 hours
+    cutoff_time = now - timedelta(hours=26)
 
     print(f"Time Filter: Articles after {cutoff_time.strftime('%Y-%m-%d %H:%M UTC')}", flush=True)
     headers = {'User-Agent': 'Geopolitical-Curator/1.0'}
@@ -255,8 +255,8 @@ def call_model(model_info, batch):
         }
     }
 
-    max_retries = 5
-    base_wait = 30
+    max_retries = 8
+    base_wait = 60
 
     for attempt in range(max_retries):
         try:
@@ -287,7 +287,7 @@ def call_model(model_info, batch):
 
             elif response.status_code == 429:
                 wait_time = base_wait * (2 ** attempt)
-                print(f"    [{model_info['display']}] Rate Limit (429). Cooling down {wait_time}s...", flush=True)
+                print(f"    [{model_info['display']}] Rate Limit (429). Waiting {wait_time}s...", flush=True)
                 time.sleep(wait_time)
                 continue
 
@@ -351,9 +351,9 @@ def main():
             else:
                 print(f"    [{model_info['display']}] No selections", flush=True)
 
-            time.sleep(15)
+            time.sleep(20)
 
-        time.sleep(30)
+        time.sleep(61)
 
     final_articles = []
     print(f"\nMerging results...", flush=True)
