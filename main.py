@@ -18,9 +18,9 @@ URLS = [
 
 MODELS = [
     {
-        "name": "gemini-2.0-flash-lite",
-        "display": "Gemini-2.0-Flash-Lite",
-        "batch_size": 50,
+        "name": "gemini-2.5-flash-lite",
+        "display": "Gemini-2.5-Flash-Lite",
+        "batch_size": 100,
         "api": "google"
     }
 ]
@@ -347,7 +347,10 @@ def main():
 
             time.sleep(20)
 
-        time.sleep(61)
+        # Wait 61 seconds between batches
+        if batch_idx < max_batch_count - 1:
+            print(f"  Waiting 61s before next batch...", flush=True)
+            time.sleep(61)
 
     final_articles = []
     print(f"\nMerging results...", flush=True)
