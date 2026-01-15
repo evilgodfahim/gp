@@ -351,7 +351,7 @@ def main():
 
     final_articles = []
     print(f"\n{'='*60}", flush=True)
-    print(f"FILTERING: Minimum 2 selections required...", flush=True)
+    print(f"FILTERING: Minimum 2 selections required (out of 3 runs per batch)...", flush=True)
     print(f"{'='*60}", flush=True)
     
     for aid, info in selections_map.items():
@@ -359,7 +359,7 @@ def main():
             original = articles[aid].copy()
             original['category'] = 'Geopolitical'
             original['reason'] = 'Geopolitically Significant'
-            original['selected_by'] = info['models']
+            original['selected_by'] = info['runs']
             original['selection_count'] = info['count']
             final_articles.append(original)
 
