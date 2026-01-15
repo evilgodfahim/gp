@@ -255,54 +255,49 @@ def call_model(model_info, batch):
         }
     }
 
-    max_retries = 8
-    base_wait = 60
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=90)
 
-    for attempt in range(max_retries):
-        try:
-            response = requests.post(api_url, headers=headers, json=payload, timeout=90)
+        if response.status_code == 200:
+            try:
+                response_data = response.json()
 
-            if response.status_code == 200:
-                try:
-                    response_data = response.json()
+                if 'error' in response_data:
+                    print(f"    [{model_info['display']}] API Error: {response_data.get('error', 'Unknown error')}", flush=True)
+                    sys.exit(1)
 
-                    if 'error' in response_data:
-                        print(f"    [{model_info['display']}] API Error: {response_data.get('error', 'Unknown error')}", flush=True)
-                        continue
+                content = response_data['candidates'][0]['content']['parts'][0]['text'].strip()
 
-                    content = response_data['candidates'][0]['content']['parts'][0]['text'].strip()
+            except (KeyError, IndexError) as e:
+                print(f"    [{model_info['display']}] Response parse error: {e}", flush=True)
+                sys.exit(1)
 
-                except (KeyError, IndexError) as e:
-                    print(f"    [{model_info['display']}] Response parse error: {e}", flush=True)
-                    continue
+            if content.startswith("```"):
+                content = content.replace("```json", "").replace("```", "").strip()
 
-                if content.startswith("```"):
-                    content = content.replace("```json", "").replace("```", "").strip()
+            parsed_data = extract_json_from_text(content)
+            if parsed_data is not None and isinstance(parsed_data, list):
+                return parsed_data
+            else:
+                print(f"    [{model_info['display']}] JSON parse error", flush=True)
+                sys.exit(1)
 
-                parsed_data = extract_json_from_text(content)
-                if parsed_data is not None and isinstance(parsed_data, list):
-                    return parsed_data
-                else:
-                    print(f"    [{model_info['display']}] JSON error (Attempt {attempt+1})", flush=True)
+        elif response.status_code == 429:
+            print(f"    [{model_info['display']}] Rate Limit (429). Exiting.", flush=True)
+            sys.exit(1)
 
-            elif response.status_code == 429:
-                wait_time = base_wait * (2 ** attempt)
-                print(f"    [{model_info['display']}] Rate Limit (429). Waiting {wait_time}s...", flush=True)
-                time.sleep(wait_time)
-                continue
+        elif response.status_code >= 500:
+            print(f"    [{model_info['display']}] Server Error {response.status_code}. Exiting.", flush=True)
+            sys.exit(1)
 
-            elif response.status_code >= 500:
-                print(f"    [{model_info['display']}] Server Error {response.status_code}. Retrying...", flush=True)
-                time.sleep(10)
-                continue
+        else:
+            print(f"    [{model_info['display']}] HTTP Error {response.status_code}. Exiting.", flush=True)
+            sys.exit(1)
 
-        except requests.exceptions.RequestException as e:
-            print(f"    [{model_info['display']}] Net Error. Retrying...", flush=True)
-            time.sleep(5)
+    except requests.exceptions.RequestException as e:
+        print(f"    [{model_info['display']}] Network Error: {e}. Exiting.", flush=True)
+        sys.exit(1)
 
-        time.sleep(2)
-
-    print(f"    [{model_info['display']}] Failed after {max_retries} attempts.", flush=True)
     return []
 
 def main():
@@ -326,12 +321,11 @@ def main():
         model_batches[model_info['name']] = [articles[i:i + bs] for i in range(0, len(articles), bs)]
 
     max_batch_count = max(len(batches) for batches in model_batches.values())
-    MAX_BATCHES_LIMIT = 20
     selections_map = {}
 
-    print(f"\nProcessing {min(max_batch_count, MAX_BATCHES_LIMIT)} Batch Groups...", flush=True)
+    print(f"\nProcessing {max_batch_count} Batch Groups...", flush=True)
 
-    for batch_idx in range(min(MAX_BATCHES_LIMIT, max_batch_count)):
+    for batch_idx in range(max_batch_count):
         print(f"  Batch Group {batch_idx+1}...", flush=True)
 
         for model_info in MODELS:
