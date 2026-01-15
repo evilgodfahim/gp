@@ -347,21 +347,23 @@ def main():
 
             time.sleep(20)
 
-        # Wait 61 seconds between batches
-        if batch_idx < max_batch_count - 1:
-            print(f"  Waiting 61s before next batch...", flush=True)
-            time.sleep(61)
+        time.sleep(61)
 
     final_articles = []
-    print(f"\nMerging results...", flush=True)
+    print(f"\n{'='*60}", flush=True)
+    print(f"FILTERING: Minimum 2 selections required...", flush=True)
+    print(f"{'='*60}", flush=True)
+    
     for aid, info in selections_map.items():
-        original = articles[aid].copy()
-        original['category'] = 'Geopolitical'
-        original['reason'] = 'Geopolitically Significant'
-        original['selected_by'] = info['models']
-        final_articles.append(original)
+        if info['count'] >= 2:  # Must be selected at least 2 times out of 3 runs
+            original = articles[aid].copy()
+            original['category'] = 'Geopolitical'
+            original['reason'] = 'Geopolitically Significant'
+            original['selected_by'] = info['models']
+            original['selection_count'] = info['count']
+            final_articles.append(original)
 
-    print(f"   ✅ {len(final_articles)} articles selected from {len(selections_map)} total selections", flush=True)
+    print(f"   ✅ {len(final_articles)} articles selected 2+ times from {len(selections_map)} total selections", flush=True)
 
     print(f"\nRESULTS:", flush=True)
     print(f"   Analyzed: {len(articles)} headlines", flush=True)
