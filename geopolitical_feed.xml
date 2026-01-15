@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss version="2.0">
+  <channel>
+    <title>Geopolitical Intelligence Feed</title>
+    <lastBuildDate>Thu, 15 Jan 2026 03:57:54 +0600</lastBuildDate>
+    <link>https://github.com/evilgodfahim</link>
+    <description>AI-curated geopolitical news feed</description>
+    <item>
+      <title>End of Feed</title>
+      <description>No geopolitically significant articles found.</description>
+      <pubDate>Thu, 15 Jan 2026 03:57:54 +0600</pubDate>
+    </item>
+  </channel>
+</rss>
