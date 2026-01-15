@@ -150,30 +150,46 @@ def fetch_titles_only():
     all_articles = []
     seen_links = set()
     now = datetime.now(timezone.utc)
-    cutoff_time = now - timedelta(hours=26)
+    cutoff_time = now - timedelta(hours=48)  # Extended to 48 hours
 
     print(f"Time Filter: Articles after {cutoff_time.strftime('%Y-%m-%d %H:%M UTC')}", flush=True)
     headers = {'User-Agent': 'Geopolitical-Curator/1.0'}
 
     for url in URLS:
+        print(f"Fetching: {url}", flush=True)
         try:
-            r = requests.get(url, headers=headers, timeout=10)
-            if r.status_code != 200: continue
+            r = requests.get(url, headers=headers, timeout=15)
+            print(f"  Status: {r.status_code}", flush=True)
+            
+            if r.status_code != 200:
+                print(f"  ❌ Failed to fetch feed", flush=True)
+                continue
 
             try:
                 root = ET.fromstring(r.content)
-            except: continue
+            except Exception as e:
+                print(f"  ❌ XML Parse Error: {e}", flush=True)
+                continue
 
-            for item in root.findall('.//item'):
+            items = root.findall('.//item')
+            print(f"  Found {len(items)} total items", flush=True)
+            
+            items_added = 0
+            for item in items:
                 pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
-                if not pub_date: continue
+                
+                if not pub_date:
+                    # If no pubDate, include it anyway
+                    pub_date = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0000")
 
+                # Try to parse date, but don't skip if it fails
                 try:
                     dt = parsedate_to_datetime(pub_date)
                     if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
                     else: dt = dt.astimezone(timezone.utc)
                     if dt < cutoff_time: continue
-                except: continue
+                except:
+                    pass  # Include articles with unparseable dates
 
                 link = item.find('link').text or ""
                 if not link:
@@ -196,9 +212,15 @@ def fetch_titles_only():
                     "description": desc_text or title,
                     "pubDate": pub_date
                 })
-        except Exception: continue
+                items_added += 1
+                
+            print(f"  ✅ Added {items_added} articles from this feed", flush=True)
+            
+        except Exception as e:
+            print(f"  ❌ Error: {e}", flush=True)
+            continue
 
-    print(f"Loaded {len(all_articles)} unique headlines", flush=True)
+    print(f"\nTotal Loaded: {len(all_articles)} unique headlines", flush=True)
     return all_articles
 
 def extract_json_from_text(text):
