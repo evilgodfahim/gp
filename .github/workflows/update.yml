@@ -1,4 +1,4 @@
-name: Daily Article Filter
+name: Geopolitical Article Filter
 on:
   schedule:
     # 05:00 UTC is 11:00 AM Bangladesh Standard Time
@@ -22,19 +22,15 @@ jobs:
       - name: Install Libraries
         run: pip install -r requirements.txt
 
-      - name: Run Multi-API Filter
+      - name: Run Geopolitical Filter
         env:
-          GEM: ${{ secrets.GEM }}
-          OP: ${{ secrets.OP }}
-          FRY: ${{ secrets.FRY }}
-          GEM2: ${{ secrets.GEM2 }}
-          LAM: ${{ secrets.LAM }}
+          PO: ${{ secrets.PO }}
         run: python main.py
 
       - name: Push Filtered XML
         run: |
-          git config --global user.name "Automated-Filter"
+          git config --global user.name "Geopolitical-Filter"
           git config --global user.email "actions@github.com"
           git add *.xml
-          git commit -m "Daily filtered update: $(date)" || exit 0
+          git commit -m "Geopolitical update: $(date)" || exit 0
           git push origin main
