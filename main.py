@@ -25,7 +25,9 @@ from email.utils import parsedate_to_datetime
 MAX_FEED_ITEMS = 100
 URLS = [
     "https://evilgodfahim.github.io/gpd/daily_feed.xml",
-    "https://evilgodfahim.github.io/daily/daily_master.xml"
+    "https://evilgodfahim.github.io/daily/daily_master.xml",
+"https://feeds.feedburner.com/TheAtlantic",
+"https://time.com/feed/"
 ]
 MODELS = [
     {
