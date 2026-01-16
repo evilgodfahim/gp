@@ -25,9 +25,7 @@ from email.utils import parsedate_to_datetime
 MAX_FEED_ITEMS = 100
 URLS = [
     "https://evilgodfahim.github.io/gpd/daily_feed.xml",
-    "https://evilgodfahim.github.io/daily/daily_master.xml",
-"https://feeds.feedburner.com/TheAtlantic",
-"https://time.com/feed/"
+    "https://evilgodfahim.github.io/daily/daily_master.xml"
 ]
 MODELS = [
     {
@@ -195,7 +193,8 @@ def call_model(model_info, batch):
     try:
         response = requests.post(api_url, headers=headers, json=payload, timeout=90)
         if DEBUG:
-            print(f"    [DEBUG] HTTP {response.status_code} body preview: {response.text[:2000].replace('\\n',' ')}", flush=True)
+            preview = response.text[:2000].replace("\n", " ")
+            print(f"    [DEBUG] HTTP {response.status_code} body preview: {preview}", flush=True)
 
         if response.status_code == 200:
             try:
