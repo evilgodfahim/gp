@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
 Geopolitical Intelligence Curator
-Final script — triple-run per batch enforced, robust logging, optional DEBUG for raw API output.
-Requirements preserved:
-- Uses environment PO for API key
-- Time filter: last 26 hours
-- Feeds: two URLs
-- Batch size: 100 (from MODELS config)
-- Each batch processed 3 independent runs
-- Must be selected in >=2 runs to be kept
-- 61s wait between runs and between batch groups
-- No automatic retries (exits on API-level errors)
+Final — two-file output (filter_feed.xml and filter_feed_overflow.xml), no cascade.
+Rules enforced:
+- Triple-run per batch (3 independent API calls)
+- Keep articles selected in >=2 runs
+- 61s delay between runs and between batch groups
+- Exit immediately on any API/network/API format error
+- No XML file contains more than MAX_FEED_ITEMS (100)
+- First 100 -> filter_feed.xml; next up to 100 -> filter_feed_overflow.xml; extra beyond 200 dropped
 """
 
 import os
@@ -27,11 +25,8 @@ from email.utils import parsedate_to_datetime
 MAX_FEED_ITEMS = 100
 URLS = [
     "https://evilgodfahim.github.io/gpd/daily_feed.xml",
-    "https://evilgodfahim.github.io/daily/daily_master.xml",
-"https://feeds.feedburner.com/TheAtlantic",
-"https://time.com/feed/"
+    "https://evilgodfahim.github.io/daily/daily_master.xml"
 ]
-
 MODELS = [
     {
         "name": "gemini-2.5-flash-lite",
@@ -40,89 +35,19 @@ MODELS = [
         "api": "google"
     }
 ]
-
 GOOGLE_API_KEY = os.environ.get("PO")
 GOOGLE_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-
 SYSTEM_PROMPT = """You are a Geopolitical Intelligence Filter.
-Your singular task is to identify headlines with significant geopolitical implications.
-
-GEOPOLITICAL SIGNIFICANCE CRITERIA:
-Select ONLY headlines that meet these standards:
-
-1. INTERSTATE RELATIONS & POWER DYNAMICS
-- Diplomatic initiatives, alliances, treaties, or major bilateral/multilateral agreements
-- Strategic partnerships or deteriorating relations between nations
-- Summit meetings, state visits, or high-level diplomatic engagements with substantive outcomes
-- International sanctions, embargoes, or trade restrictions with political motivations
-
-2. MILITARY & SECURITY DEVELOPMENTS
-- Military operations, deployments, or strategic repositioning
-- Defense agreements, arms sales, or military cooperation pacts
-- Security threats, terrorism, or insurgencies with cross-border implications
-- Nuclear proliferation, weapons programs, or strategic deterrence developments
-
-3. REGIONAL STABILITY & CONFLICT
-- Armed conflicts, civil wars, or insurgencies affecting regional balance
-- Peace negotiations, ceasefires, or conflict resolution efforts
-- Territorial disputes or sovereignty challenges
-- Refugee crises or mass migrations with geopolitical consequences
-
-4. GLOBAL GOVERNANCE & INSTITUTIONS
-- UN Security Council actions, resolutions, or vetoes
-- Major decisions by international organizations (NATO, EU, ASEAN, AU, etc.)
-- International law developments, tribunals, or sanctions regimes
-- Global coordination on transnational issues (pandemics, climate with geopolitical angle)
-
-5. STRATEGIC RESOURCES & ECONOMIC STATECRAFT
-- Energy security developments (pipelines, sanctions, OPEC decisions)
-- Critical infrastructure or supply chain shifts with strategic implications
-- Economic coercion, debt diplomacy, or geoeconomic competition
-- Trade wars, tariffs, or economic blocs with clear political objectives
-
-6. GREAT POWER COMPETITION
-- US-China-Russia strategic rivalry developments
-- Belt and Road Initiative or competing infrastructure projects
-- Technology competition with national security implications (semiconductors, AI, 5G)
-- Space programs or cyber operations with strategic significance
-
-7. REGIME CHANGE & POLITICAL TRANSITIONS
-- Coups, revolutions, or major political upheavals
-- Elections in strategically important nations with geopolitical consequences
-- Leadership transitions in major powers or pivotal regional states
-- Authoritarian consolidation or democratic backsliding with regional impact
-
-AUTOMATIC EXCLUSIONS:
-NEVER select:
-- Domestic politics without clear international ramifications
-- Economic news unless it involves geoeconomic statecraft
-- Crime, accidents, natural disasters (unless triggering international response)
-- Cultural, sports, or entertainment content
-- Technology or business news (unless strategic/security dimension)
-- Individual scandals or personalities (unless affecting state power)
-- Social issues, protests, or movements (unless threatening regime stability or borders)
-
-DECISION TEST:
-For each headline, ask:
-"Does this directly affect the balance of power between nations, regional stability, or strategic interests of major powers?"
-- YES → SELECT
-- NO or UNCLEAR → SKIP
-
-OUTPUT FORMAT:
-Return ONLY a JSON array of selected article IDs.
-Example: [0, 5, 12, 23]
-No markdown. No commentary. No explanation."""
-
-# Debug toggle: set to True to print raw API bodies (may be large)
+Return ONLY a JSON array of article IDs (integers) that are geopolitically significant.
+No explanation, no text, JSON only."""
 DEBUG = False
 
 # ---------- HELPERS ----------
 def now_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def save_xml(data, filename, error_message=None):
+def write_feed_xml(data, filename):
     os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
-
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
 
@@ -131,12 +56,7 @@ def save_xml(data, filename, error_message=None):
     ET.SubElement(channel, "link").text = "https://github.com/evilgodfahim"
     ET.SubElement(channel, "description").text = "AI-curated geopolitical news feed"
 
-    if error_message:
-        item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = "System Error"
-        ET.SubElement(item, "description").text = f"Script failed: {error_message}"
-        ET.SubElement(item, "pubDate").text = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0600")
-    elif not data:
+    if not data:
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = "End of Feed"
         ET.SubElement(item, "description").text = "No geopolitically significant articles found."
@@ -144,9 +64,9 @@ def save_xml(data, filename, error_message=None):
     else:
         for art in data:
             item = ET.SubElement(channel, "item")
-            ET.SubElement(item, "title").text = art['title']
-            ET.SubElement(item, "link").text = art['link']
-            ET.SubElement(item, "pubDate").text = art['pubDate']
+            ET.SubElement(item, "title").text = art.get('title', 'No Title')
+            ET.SubElement(item, "link").text = art.get('link', '')
+            ET.SubElement(item, "pubDate").text = art.get('pubDate', datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0000"))
 
             models_str = ", ".join(art.get('selected_by', ['Unknown']))
             category_info = art.get('category', 'Geopolitical')
@@ -155,22 +75,19 @@ def save_xml(data, filename, error_message=None):
             html_desc = f"<p><b>[{category_info}]</b></p>"
             html_desc += f"<p><i>{reason_info}</i></p>"
             html_desc += f"<p><small>Selected by: {models_str}</small></p>"
-            html_desc += f"<hr/><p>{art['description']}</p>"
+            html_desc += f"<hr/><p>{art.get('description','')}</p>"
 
             ET.SubElement(item, "description").text = html_desc
 
+    tree = ET.ElementTree(rss)
     try:
-        tree = ET.ElementTree(rss)
-        # indent available in Python 3.9+
-        try:
-            ET.indent(tree, space="  ", level=0)
-        except Exception:
-            pass
-        tree.write(filename, encoding="utf-8", xml_declaration=True)
-        print(f"   Saved {len(data) if data else 0} items to {filename}", flush=True)
-    except Exception as e:
-        print(f"::error::Failed to write XML {filename}: {e}", flush=True)
+        ET.indent(tree, space="  ", level=0)
+    except Exception:
+        pass
+    tree.write(filename, encoding="utf-8", xml_declaration=True)
+    print(f"   Saved {len(data)} items to {filename}", flush=True)
 
+# ---------- FETCH ----------
 def fetch_titles_only():
     all_articles = []
     seen_links = set()
@@ -185,9 +102,8 @@ def fetch_titles_only():
         try:
             r = requests.get(url, headers=headers, timeout=15)
             print(f"  Status: {r.status_code}", flush=True)
-
             if r.status_code != 200:
-                print(f"  ❌ Failed to fetch feed", flush=True)
+                print("  ❌ Failed to fetch feed", flush=True)
                 continue
 
             try:
@@ -201,7 +117,7 @@ def fetch_titles_only():
 
             items_added = 0
             for item in items:
-                pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
+                pub_date = item.findtext('pubDate') or ""
                 if not pub_date:
                     pub_date = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0000")
 
@@ -214,10 +130,9 @@ def fetch_titles_only():
                     if dt < cutoff_time:
                         continue
                 except Exception:
-                    # include unparseable-date items
                     pass
 
-                link = item.find('link').text or ""
+                link = item.findtext('link') or ""
                 if not link:
                     guid = item.find('guid')
                     link = guid.text if guid is not None else ""
@@ -225,24 +140,20 @@ def fetch_titles_only():
                 if not link or link in seen_links:
                     continue
 
-                title = item.find('title').text or "No Title"
-                title = title.strip()
-                seen_links.add(link)
-
-                desc = item.find('description')
-                desc_text = desc.text if desc is not None else title
+                title = (item.findtext('title') or "No Title").strip()
+                desc_text = item.findtext('description') or title
 
                 all_articles.append({
                     "id": len(all_articles),
                     "title": title,
                     "link": link,
-                    "description": desc_text or title,
+                    "description": desc_text,
                     "pubDate": pub_date
                 })
+                seen_links.add(link)
                 items_added += 1
 
             print(f"  ✅ Added {items_added} articles from this feed", flush=True)
-
         except Exception as e:
             print(f"  ❌ Error: {e}", flush=True)
             continue
@@ -250,13 +161,12 @@ def fetch_titles_only():
     print(f"\nTotal Loaded: {len(all_articles)} unique headlines", flush=True)
     return all_articles
 
+# ---------- MODEL PARSE ----------
 def extract_json_from_text(text):
-    # try direct parse
     try:
         return json.loads(text)
     except Exception:
         pass
-    # try to find first JSON array in text
     try:
         match = re.search(r'(\[[\s\d,]+\])', text, re.DOTALL)
         if match:
@@ -266,7 +176,6 @@ def extract_json_from_text(text):
     return None
 
 def call_model(model_info, batch):
-    # batch: list of article dicts (with global 'id')
     prompt_list = [f"{a['id']}: {a['title']}" for a in batch]
     prompt_text = "\n".join(prompt_list)
 
@@ -275,21 +184,16 @@ def call_model(model_info, batch):
     payload = {
         "contents": [{
             "parts": [{
-                # system instructions + prompt
                 "text": f"{SYSTEM_PROMPT}\n\n{prompt_text}"
             }]
         }],
-        "generationConfig": {
-            "temperature": 0.3
-        }
+        "generationConfig": {"temperature": 0.3}
     }
 
     try:
         response = requests.post(api_url, headers=headers, json=payload, timeout=90)
-
         if DEBUG:
-            raw_preview = response.text[:2000].replace("\n", " ")
-            print(f"    [DEBUG] HTTP {response.status_code} raw: {raw_preview}", flush=True)
+            print(f"    [DEBUG] HTTP {response.status_code} body preview: {response.text[:2000].replace('\\n',' ')}", flush=True)
 
         if response.status_code == 200:
             try:
@@ -303,19 +207,15 @@ def call_model(model_info, batch):
                 sys.exit(1)
 
             try:
-                # navigate response to text; tolerate multiple shapes
                 candidates = response_data.get('candidates') or response_data.get('outputs') or []
-                if not candidates:
-                    # fallback: maybe response_data itself contains content text
-                    content_text = response_data.get('content', '') or response_data.get('output', '')
-                else:
-                    # standard expected path
+                if candidates:
                     content_text = candidates[0]['content']['parts'][0]['text'].strip()
+                else:
+                    content_text = response_data.get('content', '') or response_data.get('output', '')
             except Exception as e:
                 print(f"    [{model_info['display']}] Response parse error: {e}", flush=True)
                 sys.exit(1)
 
-            # handle fenced code blocks
             if content_text.startswith("```"):
                 content_text = content_text.replace("```json", "").replace("```", "").strip()
 
@@ -331,14 +231,11 @@ def call_model(model_info, batch):
         elif response.status_code == 429:
             print(f"    [{model_info['display']}] Rate Limit (429). Exiting.", flush=True)
             sys.exit(1)
-
         elif response.status_code >= 500:
             print(f"    [{model_info['display']}] Server Error {response.status_code}. Exiting.", flush=True)
             sys.exit(1)
-
         else:
             print(f"    [{model_info['display']}] HTTP Error {response.status_code}. Exiting.", flush=True)
-            # print response body in debug to help diagnosis
             if DEBUG:
                 print(f"    [DEBUG] HTTP body: {response.text[:1600]}", flush=True)
             sys.exit(1)
@@ -362,10 +259,10 @@ def main():
     articles = fetch_titles_only()
     if not articles:
         print("No articles found.", flush=True)
-        save_xml([], "geopolitical_feed.xml")
+        write_feed_xml([], "filter_feed.xml")
+        write_feed_xml([], "filter_feed_overflow.xml")
         return
 
-    # prepare batches per model
     model_batches = {}
     for model_info in MODELS:
         bs = model_info['batch_size']
@@ -388,17 +285,13 @@ def main():
             batch = model_batches[m_name][batch_idx]
             print(f"    Processing model {model_info['display']} batch {batch_idx+1} (size={len(batch)})", flush=True)
 
-            # Enforced triple runs for each batch
             for run_num in (1, 2, 3):
-                start_ts = now_str()
-                print(f"    [{model_info['display']}] Run {run_num}/3 start at {start_ts}", flush=True)
-
+                print(f"    [{model_info['display']}] Run {run_num}/3 start at {now_str()}", flush=True)
                 decisions = call_model(model_info, batch)
 
                 if decisions:
                     print(f"      [{model_info['display']}] Run {run_num} selected {len(decisions)} articles", flush=True)
                     for aid in decisions:
-                        # only accept integer IDs in range
                         if isinstance(aid, int) and 0 <= aid < len(articles):
                             if aid not in selections_map:
                                 selections_map[aid] = {'runs': [], 'count': 0}
@@ -411,17 +304,12 @@ def main():
                     print(f"      Waiting 61s before next run...", flush=True)
                     time.sleep(61)
 
-        # inter-batch delay
         if batch_idx < max_batch_count - 1:
             print(f"  Waiting 61s before next batch group...", flush=True)
             time.sleep(61)
 
-    # filtering: selected in at least 2 runs
+    # filter: selected in at least 2 runs
     final_articles = []
-    print(f"\n{'='*60}", flush=True)
-    print(f"FILTERING: Minimum 2 selections required (out of 3 runs per batch)...", flush=True)
-    print(f"{'='*60}", flush=True)
-
     for aid, info in selections_map.items():
         if info['count'] >= 2:
             original = articles[aid].copy()
@@ -431,12 +319,20 @@ def main():
             original['selection_count'] = info['count']
             final_articles.append(original)
 
-    print(f"   ✅ {len(final_articles)} articles selected 2+ times from {len(selections_map)} total selections", flush=True)
+    print(f"\n{'='*60}", flush=True)
+    print(f"FILTERING: Minimum 2 selections required (out of 3 runs per batch)...", flush=True)
+    print(f"{'='*60}", flush=True)
+    print(f"   ✅ {len(final_articles)} articles selected 2+ times", flush=True)
     print(f"\nRESULTS:", flush=True)
     print(f"   Analyzed: {len(articles)} headlines", flush=True)
     print(f"   Selected: {len(final_articles)} geopolitically significant articles", flush=True)
 
-    save_xml(final_articles[:MAX_FEED_ITEMS], "geopolitical_feed.xml")
+    # Split into primary and single overflow (no cascade). Drop extras beyond 2*MAX_FEED_ITEMS.
+    primary = final_articles[:MAX_FEED_ITEMS]
+    overflow = final_articles[MAX_FEED_ITEMS:MAX_FEED_ITEMS * 2]
+
+    write_feed_xml(primary, "filter_feed.xml")
+    write_feed_xml(overflow, "filter_feed_overflow.xml")
 
 if __name__ == "__main__":
     main()
