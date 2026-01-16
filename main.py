@@ -1,3 +1,18 @@
+#!/usr/bin/env python3
+"""
+Geopolitical Intelligence Curator
+Final script — triple-run per batch enforced, robust logging, optional DEBUG for raw API output.
+Requirements preserved:
+- Uses environment PO for API key
+- Time filter: last 26 hours
+- Feeds: two URLs
+- Batch size: 100 (from MODELS config)
+- Each batch processed 3 independent runs
+- Must be selected in >=2 runs to be kept
+- 61s wait between runs and between batch groups
+- No automatic retries (exits on API-level errors)
+"""
+
 import os
 import json
 import requests
@@ -8,14 +23,11 @@ from xml.etree import ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
-# --- Configuration ---
+# ---------- CONFIG ----------
 MAX_FEED_ITEMS = 100
-
 URLS = [
     "https://evilgodfahim.github.io/gpd/daily_feed.xml",
-    "https://evilgodfahim.github.io/daily/daily_master.xml",
-"https://feeds.feedburner.com/TheAtlantic",
-"https://time.com/feed/"
+    "https://evilgodfahim.github.io/daily/daily_master.xml"
 ]
 
 MODELS = [
@@ -27,11 +39,9 @@ MODELS = [
     }
 ]
 
-# API Key and URL
 GOOGLE_API_KEY = os.environ.get("PO")
 GOOGLE_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
-# --- SYSTEM PROMPT ---
 SYSTEM_PROMPT = """You are a Geopolitical Intelligence Filter.
 Your singular task is to identify headlines with significant geopolitical implications.
 
@@ -101,6 +111,13 @@ Return ONLY a JSON array of selected article IDs.
 Example: [0, 5, 12, 23]
 No markdown. No commentary. No explanation."""
 
+# Debug toggle: set to True to print raw API bodies (may be large)
+DEBUG = False
+
+# ---------- HELPERS ----------
+def now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 def save_xml(data, filename, error_message=None):
     os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
 
@@ -142,7 +159,11 @@ def save_xml(data, filename, error_message=None):
 
     try:
         tree = ET.ElementTree(rss)
-        ET.indent(tree, space="  ", level=0)
+        # indent available in Python 3.9+
+        try:
+            ET.indent(tree, space="  ", level=0)
+        except Exception:
+            pass
         tree.write(filename, encoding="utf-8", xml_declaration=True)
         print(f"   Saved {len(data) if data else 0} items to {filename}", flush=True)
     except Exception as e:
@@ -162,7 +183,7 @@ def fetch_titles_only():
         try:
             r = requests.get(url, headers=headers, timeout=15)
             print(f"  Status: {r.status_code}", flush=True)
-            
+
             if r.status_code != 200:
                 print(f"  ❌ Failed to fetch feed", flush=True)
                 continue
@@ -175,37 +196,39 @@ def fetch_titles_only():
 
             items = root.findall('.//item')
             print(f"  Found {len(items)} total items", flush=True)
-            
+
             items_added = 0
             for item in items:
                 pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
-                
                 if not pub_date:
-                    # If no pubDate, include it anyway
                     pub_date = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0000")
 
-                # Try to parse date, but don't skip if it fails
                 try:
                     dt = parsedate_to_datetime(pub_date)
-                    if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
-                    else: dt = dt.astimezone(timezone.utc)
-                    if dt < cutoff_time: continue
-                except:
-                    pass  # Include articles with unparseable dates
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    else:
+                        dt = dt.astimezone(timezone.utc)
+                    if dt < cutoff_time:
+                        continue
+                except Exception:
+                    # include unparseable-date items
+                    pass
 
                 link = item.find('link').text or ""
                 if not link:
                     guid = item.find('guid')
                     link = guid.text if guid is not None else ""
 
-                if not link or link in seen_links: continue
+                if not link or link in seen_links:
+                    continue
 
                 title = item.find('title').text or "No Title"
                 title = title.strip()
                 seen_links.add(link)
 
                 desc = item.find('description')
-                desc_text = desc.text if desc is not None else ""
+                desc_text = desc.text if desc is not None else title
 
                 all_articles.append({
                     "id": len(all_articles),
@@ -215,9 +238,9 @@ def fetch_titles_only():
                     "pubDate": pub_date
                 })
                 items_added += 1
-                
+
             print(f"  ✅ Added {items_added} articles from this feed", flush=True)
-            
+
         except Exception as e:
             print(f"  ❌ Error: {e}", flush=True)
             continue
@@ -226,29 +249,31 @@ def fetch_titles_only():
     return all_articles
 
 def extract_json_from_text(text):
+    # try direct parse
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    except Exception:
         pass
+    # try to find first JSON array in text
     try:
-        match = re.search(r'(\[[\d,\s]*\])', text, re.DOTALL)
+        match = re.search(r'(\[[\s\d,]+\])', text, re.DOTALL)
         if match:
             return json.loads(match.group(1))
-    except json.JSONDecodeError:
+    except Exception:
         pass
     return None
 
 def call_model(model_info, batch):
+    # batch: list of article dicts (with global 'id')
     prompt_list = [f"{a['id']}: {a['title']}" for a in batch]
     prompt_text = "\n".join(prompt_list)
 
     api_url = f"{GOOGLE_API_URL}/{model_info['name']}:generateContent?key={GOOGLE_API_KEY}"
-    headers = {
-        "Content-Type": "application/json"
-    }
+    headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{
             "parts": [{
+                # system instructions + prompt
                 "text": f"{SYSTEM_PROMPT}\n\n{prompt_text}"
             }]
         }],
@@ -260,28 +285,45 @@ def call_model(model_info, batch):
     try:
         response = requests.post(api_url, headers=headers, json=payload, timeout=90)
 
+        if DEBUG:
+            raw_preview = response.text[:2000].replace("\n", " ")
+            print(f"    [DEBUG] HTTP {response.status_code} raw: {raw_preview}", flush=True)
+
         if response.status_code == 200:
             try:
                 response_data = response.json()
+            except Exception as e:
+                print(f"    [{model_info['display']}] Invalid JSON response: {e}", flush=True)
+                sys.exit(1)
 
-                if 'error' in response_data:
-                    print(f"    [{model_info['display']}] API Error: {response_data.get('error', 'Unknown error')}", flush=True)
-                    sys.exit(1)
+            if 'error' in response_data:
+                print(f"    [{model_info['display']}] API Error: {response_data.get('error')}", flush=True)
+                sys.exit(1)
 
-                content = response_data['candidates'][0]['content']['parts'][0]['text'].strip()
-
-            except (KeyError, IndexError) as e:
+            try:
+                # navigate response to text; tolerate multiple shapes
+                candidates = response_data.get('candidates') or response_data.get('outputs') or []
+                if not candidates:
+                    # fallback: maybe response_data itself contains content text
+                    content_text = response_data.get('content', '') or response_data.get('output', '')
+                else:
+                    # standard expected path
+                    content_text = candidates[0]['content']['parts'][0]['text'].strip()
+            except Exception as e:
                 print(f"    [{model_info['display']}] Response parse error: {e}", flush=True)
                 sys.exit(1)
 
-            if content.startswith("```"):
-                content = content.replace("```json", "").replace("```", "").strip()
+            # handle fenced code blocks
+            if content_text.startswith("```"):
+                content_text = content_text.replace("```json", "").replace("```", "").strip()
 
-            parsed_data = extract_json_from_text(content)
+            parsed_data = extract_json_from_text(content_text)
             if parsed_data is not None and isinstance(parsed_data, list):
                 return parsed_data
             else:
-                print(f"    [{model_info['display']}] JSON parse error", flush=True)
+                print(f"    [{model_info['display']}] JSON parse error: model output not a JSON list", flush=True)
+                if DEBUG:
+                    print(f"    [DEBUG] Model output: {content_text}", flush=True)
                 sys.exit(1)
 
         elif response.status_code == 429:
@@ -294,6 +336,9 @@ def call_model(model_info, batch):
 
         else:
             print(f"    [{model_info['display']}] HTTP Error {response.status_code}. Exiting.", flush=True)
+            # print response body in debug to help diagnosis
+            if DEBUG:
+                print(f"    [DEBUG] HTTP body: {response.text[:1600]}", flush=True)
             sys.exit(1)
 
     except requests.exceptions.RequestException as e:
@@ -302,6 +347,7 @@ def call_model(model_info, batch):
 
     return []
 
+# ---------- MAIN ----------
 def main():
     print("=" * 60, flush=True)
     print("Geopolitical Intelligence Curator", flush=True)
@@ -317,6 +363,7 @@ def main():
         save_xml([], "geopolitical_feed.xml")
         return
 
+    # prepare batches per model
     model_batches = {}
     for model_info in MODELS:
         bs = model_info['batch_size']
@@ -328,36 +375,53 @@ def main():
     print(f"\nProcessing {max_batch_count} Batch Groups...", flush=True)
 
     for batch_idx in range(max_batch_count):
-        print(f"  Batch Group {batch_idx+1}...", flush=True)
+        print(f"\n  Batch Group {batch_idx+1}...", flush=True)
 
         for model_info in MODELS:
             m_name = model_info['name']
-            if batch_idx >= len(model_batches[m_name]): continue
+            if batch_idx >= len(model_batches[m_name]):
+                print(f"    Skipping {model_info['display']} (no batch)", flush=True)
+                continue
 
-            decisions = call_model(model_info, model_batches[m_name][batch_idx])
+            batch = model_batches[m_name][batch_idx]
+            print(f"    Processing model {model_info['display']} batch {batch_idx+1} (size={len(batch)})", flush=True)
 
-            if decisions:
-                print(f"    [{model_info['display']}] Selected {len(decisions)} articles", flush=True)
-                for aid in decisions:
-                    if isinstance(aid, int) and aid < len(articles):
-                        if aid not in selections_map:
-                            selections_map[aid] = {'models': [], 'count': 0}
-                        selections_map[aid]['models'].append(model_info['display'])
-                        selections_map[aid]['count'] += 1
-            else:
-                print(f"    [{model_info['display']}] No selections", flush=True)
+            # Enforced triple runs for each batch
+            for run_num in (1, 2, 3):
+                start_ts = now_str()
+                print(f"    [{model_info['display']}] Run {run_num}/3 start at {start_ts}", flush=True)
 
-            time.sleep(20)
+                decisions = call_model(model_info, batch)
 
-        time.sleep(61)
+                if decisions:
+                    print(f"      [{model_info['display']}] Run {run_num} selected {len(decisions)} articles", flush=True)
+                    for aid in decisions:
+                        # only accept integer IDs in range
+                        if isinstance(aid, int) and 0 <= aid < len(articles):
+                            if aid not in selections_map:
+                                selections_map[aid] = {'runs': [], 'count': 0}
+                            selections_map[aid]['runs'].append(f"Batch{batch_idx+1}-Run{run_num}")
+                            selections_map[aid]['count'] += 1
+                else:
+                    print(f"      [{model_info['display']}] Run {run_num} returned no selections", flush=True)
 
+                if run_num < 3:
+                    print(f"      Waiting 61s before next run...", flush=True)
+                    time.sleep(61)
+
+        # inter-batch delay
+        if batch_idx < max_batch_count - 1:
+            print(f"  Waiting 61s before next batch group...", flush=True)
+            time.sleep(61)
+
+    # filtering: selected in at least 2 runs
     final_articles = []
     print(f"\n{'='*60}", flush=True)
     print(f"FILTERING: Minimum 2 selections required (out of 3 runs per batch)...", flush=True)
     print(f"{'='*60}", flush=True)
-    
+
     for aid, info in selections_map.items():
-        if info['count'] >= 2:  # Must be selected at least 2 times out of 3 runs
+        if info['count'] >= 2:
             original = articles[aid].copy()
             original['category'] = 'Geopolitical'
             original['reason'] = 'Geopolitically Significant'
@@ -366,7 +430,6 @@ def main():
             final_articles.append(original)
 
     print(f"   ✅ {len(final_articles)} articles selected 2+ times from {len(selections_map)} total selections", flush=True)
-
     print(f"\nRESULTS:", flush=True)
     print(f"   Analyzed: {len(articles)} headlines", flush=True)
     print(f"   Selected: {len(final_articles)} geopolitically significant articles", flush=True)
