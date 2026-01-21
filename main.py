@@ -41,6 +41,8 @@ GOOGLE_API_KEY = os.environ.get("PO")
 GOOGLE_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 SYSTEM_PROMPT = """You are a Geopolitical Intelligence Filter.
 Return ONLY a JSON array of article IDs (integers) that are geopolitically significant.
+Be conservative. Do not infer beyond the headline.
+Prioritise security, state power, macroeconomics, and international consequences.
 No explanation, no text, JSON only."""
 DEBUG = False
 
