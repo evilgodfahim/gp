@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
-Geopolitical Intelligence Curator
-Final — two-file output (filter_feed.xml and filter_feed_overflow.xml), no cascade.
-Rules enforced:
-- Triple-run per batch (3 independent API calls)
-- Keep articles selected in >=2 runs
-- 61s delay between runs and between batch groups
-- Exit immediately on any API/network/API format error
-- No XML file contains more than MAX_FEED_ITEMS (100)
-- First 100 -> filter_feed.xml; next up to 100 -> filter_feed_overflow.xml; extra beyond 200 dropped
+Geopolitical Intelligence Curator — Ensemble + Single-shot Gemini clustering
+
+Behavior changes (added):
+- After final selection (selected in >=2 runs), all final articles are sent
+  once to Gemini for clustering (no batching).
+- Gemini must return JSON: [{"cluster_id":int,"main":id,"members":[ids,...]}, ...]
+- For each cluster, the chosen `main` must be an existing article id.
+- Output items = the existing main articles only. Other cluster members are
+  added as linked titles inside the main article's description.
+- If clustering fails (network / API / format), exit immediately (same policy
+  as selection).
+- Final XML files are created from clustered items, then sliced:
+  primary = first MAX_FEED_ITEMS, overflow = next up to MAX_FEED_ITEMS.
+  Anything beyond 2 * MAX_FEED_ITEMS is dropped.
 """
 
 import os
@@ -26,8 +31,8 @@ MAX_FEED_ITEMS = 100
 URLS = [
     "https://evilgodfahim.github.io/gpd/daily_feed.xml",
     "https://evilgodfahim.github.io/daily/daily_master.xml",
-"https://feeds.feedburner.com/TheAtlantic",
-"https://time.com/feed/"
+    "https://feeds.feedburner.com/TheAtlantic",
+    "https://time.com/feed/"
 ]
 MODELS = [
     {
@@ -249,6 +254,106 @@ def call_model(model_info, batch):
 
     return []
 
+# ---------- GEMINI CLUSTER (single-shot) ----------
+def call_gemini_cluster(all_articles, model_name="gemini-2.5-flash", min_similarity=0.5):
+    if not GOOGLE_API_KEY:
+        print("::error::PO environment variable is missing (for clustering)!", flush=True)
+        sys.exit(1)
+
+    # prepare tab-separated block: id<TAB>title<TAB>link<TAB>description
+    lines = []
+    for a in all_articles:
+        title = (a.get('title') or "").replace("\n", " ").strip()
+        desc = (a.get('description') or "").replace("\n", " ").strip()
+        link = a.get('link', '')
+        lines.append(f"{a['id']}\t{title}\t{link}\t{desc}")
+
+    content_block = "\n".join(lines)
+    system = (
+        "You are a strict clustering assistant. Input is a tab-separated list: id<TAB>title<TAB>link<TAB>description. "
+        f"Cluster headlines that are near-duplicates or strongly about the same event/impact. Only group items when similarity is approximately >= {int(min_similarity*100)}% (i.e. near-50% or greater). "
+        "Choose one main representative per cluster (prefer the clearest title). Output VALID JSON only: an array of objects with fields {\"cluster_id\":int, \"main\":id, \"members\":[ids...]}. No commentary, no markdown, no code fences."
+    )
+    user = f"ARTICLES:\n{content_block}"
+
+    api_url = f"{GOOGLE_API_URL}/{model_name}:generateContent?key={GOOGLE_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [
+            {"parts": [{"text": system}, {"text": user}]}
+        ],
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2000}
+    }
+
+    try:
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+    except requests.exceptions.RequestException as e:
+        print(f"Gemini clustering network error: {e}. Exiting.", flush=True)
+        sys.exit(1)
+
+    if resp.status_code != 200:
+        print(f"Gemini cluster call failed: HTTP {resp.status_code}. Exiting.", flush=True)
+        if DEBUG:
+            print(resp.text[:2000], flush=True)
+        sys.exit(1)
+
+    try:
+        data = resp.json()
+    except Exception as e:
+        print(f"Gemini cluster: invalid JSON response: {e}. Exiting.", flush=True)
+        if DEBUG:
+            print(resp.text[:2000], flush=True)
+        sys.exit(1)
+
+    # extract textual content from common response shapes
+    text = None
+    if isinstance(data, dict):
+        if 'candidates' in data and data['candidates']:
+            try:
+                text = data['candidates'][0]['content']['parts'][0]['text'].strip()
+            except Exception:
+                pass
+        if not text and 'outputs' in data and data['outputs']:
+            try:
+                text = data['outputs'][0].get('content', '')
+            except Exception:
+                pass
+    if text is None:
+        # last resort: raw text
+        text = resp.text
+
+    if text.startswith("```"):
+        text = text.replace("```json", "").replace("```", "").strip()
+
+    parsed = extract_json_from_text(text)
+    if not isinstance(parsed, list):
+        print("Gemini cluster returned invalid format (expected JSON list). Exiting.", flush=True)
+        if DEBUG:
+            print("Response text:", text[:2000], flush=True)
+        sys.exit(1)
+
+    # validate clusters and coerce ints
+    validated = []
+    for idx, c in enumerate(parsed):
+        if not isinstance(c, dict):
+            continue
+        if 'members' not in c or 'main' not in c:
+            continue
+        try:
+            members = [int(x) for x in c['members']]
+            main = int(c['main'])
+        except Exception:
+            continue
+        # ensure members non-empty and main is in members (if not, we'll fix later)
+        validated.append({"cluster_id": int(c.get("cluster_id", idx)), "main": main, "members": members})
+    if not validated:
+        print("Gemini cluster returned no valid clusters. Exiting.", flush=True)
+        if DEBUG:
+            print("Raw parsed:", parsed, flush=True)
+        sys.exit(1)
+
+    return validated
+
 # ---------- MAIN ----------
 def main():
     print("=" * 60, flush=True)
@@ -330,9 +435,68 @@ def main():
     print(f"   Analyzed: {len(articles)} headlines", flush=True)
     print(f"   Selected: {len(final_articles)} geopolitically significant articles", flush=True)
 
-    # Split into primary and single overflow (no cascade). Drop extras beyond 2*MAX_FEED_ITEMS.
-    primary = final_articles[:MAX_FEED_ITEMS]
-    overflow = final_articles[MAX_FEED_ITEMS:MAX_FEED_ITEMS * 2]
+    if not final_articles:
+        write_feed_xml([], "filter_feed.xml")
+        write_feed_xml([], "filter_feed_overflow.xml")
+        return
+
+    # --- Clustering pass (single-shot) ---
+    print("Sending selected articles to Gemini for single-shot clustering...", flush=True)
+    clusters = call_gemini_cluster(final_articles, model_name=MODELS[0]['name'], min_similarity=0.5)
+    # call_gemini_cluster exits on failure — if returned, clusters valid
+
+    # Build cluster map and ensure every final article appears in exactly one cluster
+    cluster_map = {}
+    used_ids = set()
+    for c in clusters:
+        cid = c['cluster_id']
+        members = c['members']
+        main = c['main'] if c['main'] in members else (members[0] if members else None)
+        if main is None:
+            continue
+        cluster_map[cid] = {"main": main, "members": members}
+        used_ids.update(members)
+
+    # Any final_article not present in cluster members => create single-member cluster
+    next_cid = max(cluster_map.keys()) + 1 if cluster_map else 0
+    for art in final_articles:
+        if art['id'] not in used_ids:
+            cluster_map[next_cid] = {"main": art['id'], "members": [art['id']]}
+            next_cid += 1
+
+    # Build clustered items: each cluster becomes one output item (the existing main article)
+    clustered_items = []
+    for cid, info in cluster_map.items():
+        main_id = info['main']
+        members = info['members']
+        main_art = next((a for a in final_articles if a['id'] == main_id), None)
+        if not main_art:
+            continue
+        similar_html = ""
+        sims = [m for m in members if m != main_id]
+        if sims:
+            similar_html += "<p><b>Similar items:</b></p><ul>"
+            for sid in sims:
+                art = next((a for a in final_articles if a['id'] == sid), None)
+                if art:
+                    safe_title = art['title']
+                    safe_link = art.get('link', '#')
+                    similar_html += f"<li><a href=\"{safe_link}\">{safe_title}</a></li>"
+            similar_html += "</ul>"
+
+        new_item = main_art.copy()
+        new_item['description'] = (new_item.get('description','') or '') + "<hr/>" + similar_html
+        new_item['cluster_id'] = cid
+        clustered_items.append(new_item)
+
+    print(f"   Clusters produced: {len(clustered_items)}", flush=True)
+
+    # enforce MAX_FEED_ITEMS per file and drop extras beyond 2*MAX_FEED_ITEMS
+    total_allowed = MAX_FEED_ITEMS * 2
+    clustered_items = clustered_items[:total_allowed]
+
+    primary = clustered_items[:MAX_FEED_ITEMS]
+    overflow = clustered_items[MAX_FEED_ITEMS:MAX_FEED_ITEMS * 2]
 
     write_feed_xml(primary, "filter_feed.xml")
     write_feed_xml(overflow, "filter_feed_overflow.xml")
