@@ -139,27 +139,72 @@ def fetch_titles_only():
     print(f"\nTotal Loaded: {len(all_articles)} unique headlines", flush=True)
     return all_articles
 
-# ---------- MODEL PARSE ----------
+# robust extractor
 def extract_json_from_text(text):
     if not text:
         return None
-    text = re.sub(r'```(?:json)?', '', text).strip()
+    text = re.sub(r'```(?:json)?', '', text, flags=re.IGNORECASE).strip()
     try:
         return json.loads(text)
     except Exception:
         pass
-    m = re.search(r'(.*|\{.*\})', text, re.DOTALL)
-    if m:
-        cand = m.group(1)
+    start_idx = None
+    for i, ch in enumerate(text):
+        if ch in '[{':
+            start_idx = i
+            break
+    if start_idx is None:
+        return None
+    i = start_idx
+    stack = []
+    in_str = None
+    esc = False
+    while i < len(text):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == in_str:
+                in_str = None
+        else:
+            if ch == '"' or ch == "'":
+                in_str = ch
+            elif ch == '[':
+                stack.append(']')
+            elif ch == '{':
+                stack.append('}')
+            elif ch == ']' or ch == '}':
+                if not stack:
+                    break
+                expected = stack.pop()
+                if ch != expected:
+                    break
+                if not stack:
+                    end_idx = i + 1
+                    candidate = text[start_idx:end_idx]
+                    try:
+                        return json.loads(candidate)
+                    except Exception:
+                        cleaned = re.sub(r',\s*([}\]])', r'\1', candidate)
+                        try:
+                            return json.loads(cleaned)
+                        except Exception:
+                            return None
+        i += 1
+    s = text.find('[')
+    e = text.rfind(']')
+    if s != -1 and e != -1 and e > s:
+        candidate = text[s:e+1]
         try:
-            return json.loads(cand)
+            return json.loads(candidate)
         except Exception:
-            s = text.find('['); e = text.rfind(']')
-            if s != -1 and e != -1 and e > s:
-                try:
-                    return json.loads(text[s:e+1])
-                except Exception:
-                    return None
+            try:
+                cleaned = re.sub(r',\s*([}\]])', r'\1', candidate)
+                return json.loads(cleaned)
+            except Exception:
+                return None
     return None
 
 def call_model(model_info, batch):
@@ -224,7 +269,6 @@ def call_model(model_info, batch):
         sys.exit(1)
     return []
 
-# ---------- GEMINI CLUSTER (single-shot) ----------
 def call_gemini_cluster(all_articles, model_name="gemini-2.5-flash", min_similarity=0.5):
     if not GOOGLE_API_KEY:
         print("::error::PO environment variable is missing (for clustering)!", flush=True)
