@@ -1,201 +1,179 @@
+#!/usr/bin/env python3
+"""
+Geopolitical Intelligence Curator
+Final — two-file output (filter_feed.xml and filter_feed_overflow.xml), no cascade.
+Rules enforced:
+- Triple-run per batch (3 independent API calls)
+- Keep articles selected in >=2 runs
+- 61s delay between runs and between batch groups
+- Exit immediately on any API/network/API format error
+- No XML file contains more than MAX_FEED_ITEMS (100)
+- First 100 -> filter_feed.xml; next up to 100 -> filter_feed_overflow.xml; extra beyond 200 dropped
+"""
+
 import os
 import json
 import requests
 import time
 import sys
 import re
-import difflib
 from xml.etree import ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
-# --- Configuration ---
-MAX_FEED_ITEMS = 100  # <--- Limit before spilling to overflow file
-
+# ---------- CONFIG ----------
+MAX_FEED_ITEMS = 100
 URLS = [
-    "https://evilgodfahim.github.io/sci/daily_feed.xml",
-"https://evilgodfahim.github.io/bdlb/final.xml",
-    "https://evilgodfahim.github.io/fp/final.xml",
-    "https://evilgodfahim.github.io/bdl/final.xml",
-    "https://evilgodfahim.github.io/int/final.xml",
     "https://evilgodfahim.github.io/gpd/daily_feed.xml",
     "https://evilgodfahim.github.io/daily/daily_master.xml",
-    "https://evilgodfahim.github.io/bdit/daily_feed_2.xml",
-    "https://evilgodfahim.github.io/bdit/daily_feed.xml",
-    "https://evilgodfahim.github.io/edit/daily_feed.xml"
+"https://feeds.feedburner.com/TheAtlantic",
+"https://time.com/feed/"
 ]
-
-# YOUR ORIGINAL MODELS
-# Note: Batch sizes kept at 25 to prevent "413 Payload" and JSON cutoff errors.
 MODELS = [
-    {"name": "llama-3.3-70b-versatile", "display": "Llama-3.3-70B", "batch_size": 25},
-    {"name": "qwen/qwen3-32b", "display": "Qwen-3-32B", "batch_size": 25},
-    {"name": "openai/gpt-oss-120b", "display": "GPT-OSS-120B", "batch_size": 25}
+    {
+        "name": "gemini-2.5-flash",
+        "display": "Gemini-2.5-Flash-Lite",
+        "batch_size": 100,
+        "api": "google"
+    }
 ]
+GOOGLE_API_KEY = os.environ.get("PO")
+GOOGLE_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+SYSTEM_PROMPT = """You are a Geopolitical Intelligence Filter.
+Return ONLY a JSON array of article IDs (integers) that are geopolitically significant.
+No explanation, no text, JSON only."""
+DEBUG = False
 
-GROQ_API_KEY = os.environ.get("GEM")
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+# ---------- HELPERS ----------
+def now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# --- YOUR EXACT ORIGINAL PROMPT (RESTORED) ---
-SYSTEM_PROMPT = """You are a Chief Information Filter.
-Your task is to select headlines with structural and lasting significance.
-You do not evaluate importance by popularity, novelty, or emotion.
-You evaluate how information explains or alters systems.
-Judgment must rely only on linguistic structure, implied scope, and systemic consequence.
-TWO INFORMATION TYPES (internal use)
-STRUCTURAL
-— Explains how power, institutions, economies, or long-term social/strategic forces operate or change.
-EPISODIC
-— Describes isolated events, individual actions, or short-lived situations without system impact.
-Select only STRUCTURAL.
-FOUR STRUCTURAL LENSES (exclusive)
-GOVERNANCE & CONTROL
-Rules, enforcement, institutional balance, authority transfer, administrative or judicial change.
-ECONOMIC & RESOURCE FLOWS
-Capital movement, trade structure, production capacity, fiscal or monetary direction, systemic risk.
-POWER RELATIONS & STRATEGY
-Strategic alignment, coercion, deterrence, security posture, long-term rivalry or cooperation.
-IDEAS, ARGUMENTS & LONG-TERM TRENDS
-Editorial reasoning, policy debate, scientific or technological trajectories, demographic or climate forces.
-CONTEXTUAL GRAVITY RULE (KEY)
-When two or more headlines show equal structural strength, favor the one that:
-• Operates closer to the decision-making center of a society
-• Directly affects national policy formation or institutional practice
-• Originates from internal analytical or editorial discourse, not external observation
-This rule applies universally, regardless of language or country.
-SINGLE DECISION TEST (mandatory)
-Ask only:
-"Does this headline clarify how a system functions or how its future direction is being shaped, in a way that remains relevant after time passes?"
-• Yes or plausibly yes → SELECT
-• No → SKIP
-No secondary tests.
-AUTOMATIC EXCLUSIONS
-Skip always: • Crime, accidents, or scandals without institutional consequence
-• Sports, entertainment, lifestyle
-• Personal narratives without systemic implication
-• Repetition of already-settled facts
-OUTPUT SPEC (strict)
-Return only a JSON array.
-Each item must contain exactly: id
-category (one of the four lenses)
-reason (one concise sentence explaining the structural significance)
-No markdown.
-No commentary.
-No text outside JSON.
-Start with [ and end with ]."""
-
-def save_xml(data, filename, error_message=None):
+def write_feed_xml(data, filename):
     os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
-    
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
-    
-    feed_title = "Elite News Feed"
-    if "overflow" in filename:
-        feed_title += " (Overflow)"
-        
-    ET.SubElement(channel, "title").text = feed_title
+
+    ET.SubElement(channel, "title").text = "Geopolitical Intelligence Feed"
     ET.SubElement(channel, "lastBuildDate").text = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0600")
     ET.SubElement(channel, "link").text = "https://github.com/evilgodfahim"
-    ET.SubElement(channel, "description").text = "AI-curated structural news feed"
+    ET.SubElement(channel, "description").text = "AI-curated geopolitical news feed"
 
-    if error_message:
-        item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = "System Error"
-        ET.SubElement(item, "description").text = f"Script failed: {error_message}"
-        ET.SubElement(item, "pubDate").text = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0600")
-    elif not data:
+    if not data:
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = "End of Feed"
-        ET.SubElement(item, "description").text = "No additional articles in this feed."
+        ET.SubElement(item, "description").text = "No geopolitically significant articles found."
         ET.SubElement(item, "pubDate").text = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0600")
     else:
         for art in data:
             item = ET.SubElement(channel, "item")
-            ET.SubElement(item, "title").text = art['title']
-            ET.SubElement(item, "link").text = art['link']
-            ET.SubElement(item, "pubDate").text = art['pubDate']
-            
+            ET.SubElement(item, "title").text = art.get('title', 'No Title')
+            ET.SubElement(item, "link").text = art.get('link', '')
+            ET.SubElement(item, "pubDate").text = art.get('pubDate', datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0000"))
+
             models_str = ", ".join(art.get('selected_by', ['Unknown']))
-            category_info = art.get('category', 'News')
-            reason_info = art.get('reason', 'Selected')
-            
+            category_info = art.get('category', 'Geopolitical')
+            reason_info = art.get('reason', 'Geopolitically Significant')
+
             html_desc = f"<p><b>[{category_info}]</b></p>"
             html_desc += f"<p><i>{reason_info}</i></p>"
             html_desc += f"<p><small>Selected by: {models_str}</small></p>"
-            html_desc += f"<hr/><p>{art['description']}</p>"
-            
+            html_desc += f"<hr/><p>{art.get('description','')}</p>"
+
             ET.SubElement(item, "description").text = html_desc
 
+    tree = ET.ElementTree(rss)
     try:
-        tree = ET.ElementTree(rss)
         ET.indent(tree, space="  ", level=0)
-        tree.write(filename, encoding="utf-8", xml_declaration=True)
-        print(f"   Saved {len(data) if data else 0} items to {filename}", flush=True)
-    except Exception as e:
-        print(f"::error::Failed to write XML {filename}: {e}", flush=True)
+    except Exception:
+        pass
+    tree.write(filename, encoding="utf-8", xml_declaration=True)
+    print(f"   Saved {len(data)} items to {filename}", flush=True)
 
+# ---------- FETCH ----------
 def fetch_titles_only():
     all_articles = []
     seen_links = set()
     now = datetime.now(timezone.utc)
     cutoff_time = now - timedelta(hours=26)
-    
+
     print(f"Time Filter: Articles after {cutoff_time.strftime('%Y-%m-%d %H:%M UTC')}", flush=True)
-    headers = {'User-Agent': 'BCS-Curator/3.0-Ensemble'}
+    headers = {'User-Agent': 'Geopolitical-Curator/1.0'}
 
     for url in URLS:
+        print(f"Fetching: {url}", flush=True)
         try:
-            r = requests.get(url, headers=headers, timeout=10)
-            if r.status_code != 200: continue
-            
+            r = requests.get(url, headers=headers, timeout=15)
+            print(f"  Status: {r.status_code}", flush=True)
+            if r.status_code != 200:
+                print("  ❌ Failed to fetch feed", flush=True)
+                continue
+
             try:
                 root = ET.fromstring(r.content)
-            except: continue
+            except Exception as e:
+                print(f"  ❌ XML Parse Error: {e}", flush=True)
+                continue
 
-            for item in root.findall('.//item'):
-                pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
-                if not pub_date: continue
-                
+            items = root.findall('.//item')
+            print(f"  Found {len(items)} total items", flush=True)
+
+            items_added = 0
+            for item in items:
+                pub_date = item.findtext('pubDate') or ""
+                if not pub_date:
+                    pub_date = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0000")
+
                 try:
                     dt = parsedate_to_datetime(pub_date)
-                    if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
-                    else: dt = dt.astimezone(timezone.utc)
-                    if dt < cutoff_time: continue
-                except: continue
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    else:
+                        dt = dt.astimezone(timezone.utc)
+                    if dt < cutoff_time:
+                        continue
+                except Exception:
+                    pass
 
-                link = item.find('link').text or ""
-                if not link or link in seen_links: continue
-                
-                title = item.find('title').text or "No Title"
-                title = title.strip()
-                seen_links.add(link)
-                
-                desc = item.find('description')
-                desc_text = desc.text if desc is not None else ""
+                link = item.findtext('link') or ""
+                if not link:
+                    guid = item.find('guid')
+                    link = guid.text if guid is not None else ""
+
+                if not link or link in seen_links:
+                    continue
+
+                title = (item.findtext('title') or "No Title").strip()
+                desc_text = item.findtext('description') or title
 
                 all_articles.append({
                     "id": len(all_articles),
                     "title": title,
                     "link": link,
-                    "description": desc_text or title,
+                    "description": desc_text,
                     "pubDate": pub_date
                 })
-        except Exception: continue
+                seen_links.add(link)
+                items_added += 1
 
-    print(f"Loaded {len(all_articles)} unique headlines", flush=True)
+            print(f"  ✅ Added {items_added} articles from this feed", flush=True)
+        except Exception as e:
+            print(f"  ❌ Error: {e}", flush=True)
+            continue
+
+    print(f"\nTotal Loaded: {len(all_articles)} unique headlines", flush=True)
     return all_articles
 
+# ---------- MODEL PARSE ----------
 def extract_json_from_text(text):
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    except Exception:
         pass
     try:
-        match = re.search(r'(\[.*\])', text, re.DOTALL)
+        match = re.search(r'(\[[\s\d,]+\])', text, re.DOTALL)
         if match:
             return json.loads(match.group(1))
-    except json.JSONDecodeError:
+    except Exception:
         pass
     return None
 
@@ -203,187 +181,161 @@ def call_model(model_info, batch):
     prompt_list = [f"{a['id']}: {a['title']}" for a in batch]
     prompt_text = "\n".join(prompt_list)
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
+    api_url = f"{GOOGLE_API_URL}/{model_info['name']}:generateContent?key={GOOGLE_API_KEY}"
+    headers = {"Content-Type": "application/json"}
     payload = {
-        "model": model_info["name"],
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt_text}
-        ],
-        "temperature": 0.3,
-        "max_tokens": 4096
+        "contents": [{
+            "parts": [{
+                "text": f"{SYSTEM_PROMPT}\n\n{prompt_text}"
+            }]
+        }],
+        "generationConfig": {"temperature": 0.3}
     }
 
-    max_retries = 5
-    base_wait = 30 
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=90)
+        if DEBUG:
+            preview = response.text[:2000].replace("\n", " ")
+            print(f"    [DEBUG] HTTP {response.status_code} body preview: {preview}", flush=True)
 
-    for attempt in range(max_retries):
-        try:
-            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=90)
-            
-            if response.status_code == 200:
-                content = response.json()['choices'][0]['message']['content'].strip()
-                # Clean code blocks
-                if content.startswith("```"):
-                    content = content.replace("```json", "").replace("```", "").strip()
+        if response.status_code == 200:
+            try:
+                response_data = response.json()
+            except Exception as e:
+                print(f"    [{model_info['display']}] Invalid JSON response: {e}", flush=True)
+                sys.exit(1)
 
-                parsed_data = extract_json_from_text(content)
-                if parsed_data is not None and isinstance(parsed_data, list):
-                    return parsed_data
+            if 'error' in response_data:
+                print(f"    [{model_info['display']}] API Error: {response_data.get('error')}", flush=True)
+                sys.exit(1)
+
+            try:
+                candidates = response_data.get('candidates') or response_data.get('outputs') or []
+                if candidates:
+                    content_text = candidates[0]['content']['parts'][0]['text'].strip()
                 else:
-                    print(f"    [{model_info['display']}] JSON error (Attempt {attempt+1})", flush=True)
-            
-            elif response.status_code == 429:
-                wait_time = base_wait * (2 ** attempt)
-                print(f"    [{model_info['display']}] Rate Limit (429). Cooling down {wait_time}s...", flush=True)
-                time.sleep(wait_time)
-                continue
-            
-            elif response.status_code >= 500:
-                print(f"    [{model_info['display']}] Server Error {response.status_code}. Retrying...", flush=True)
-                time.sleep(10)
-                continue
-            
-        except requests.exceptions.RequestException as e:
-            print(f"    [{model_info['display']}] Net Error. Retrying...", flush=True)
-            time.sleep(5)
-            
-        time.sleep(2)
-    
-    print(f"    [{model_info['display']}] Failed after {max_retries} attempts.", flush=True)
+                    content_text = response_data.get('content', '') or response_data.get('output', '')
+            except Exception as e:
+                print(f"    [{model_info['display']}] Response parse error: {e}", flush=True)
+                sys.exit(1)
+
+            if content_text.startswith("```"):
+                content_text = content_text.replace("```json", "").replace("```", "").strip()
+
+            parsed_data = extract_json_from_text(content_text)
+            if parsed_data is not None and isinstance(parsed_data, list):
+                return parsed_data
+            else:
+                print(f"    [{model_info['display']}] JSON parse error: model output not a JSON list", flush=True)
+                if DEBUG:
+                    print(f"    [DEBUG] Model output: {content_text}", flush=True)
+                sys.exit(1)
+
+        elif response.status_code == 429:
+            print(f"    [{model_info['display']}] Rate Limit (429). Exiting.", flush=True)
+            sys.exit(1)
+        elif response.status_code >= 500:
+            print(f"    [{model_info['display']}] Server Error {response.status_code}. Exiting.", flush=True)
+            sys.exit(1)
+        else:
+            print(f"    [{model_info['display']}] HTTP Error {response.status_code}. Exiting.", flush=True)
+            if DEBUG:
+                print(f"    [DEBUG] HTTP body: {response.text[:1600]}", flush=True)
+            sys.exit(1)
+
+    except requests.exceptions.RequestException as e:
+        print(f"    [{model_info['display']}] Network Error: {e}. Exiting.", flush=True)
+        sys.exit(1)
+
     return []
 
-# --- DEDUPLICATION LOGIC ---
-def normalize_text(text):
-    text = re.sub(r'[।,:;\-\(\)\"\'\?]', ' ', text)
-    return text.lower().strip()
-
-def extract_key_terms(text):
-    text = normalize_text(text)
-    bangla_stops = {'এ', 'এর', 'ও', 'তে', 'না', 'কে', 'যে', 'হয়', 'এবং', 'করে', 'থেকে', 'নিয়ে', 'জন্য', 'বলে', 'করা'}
-    english_stops = {'the', 'a', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'has', 'have', 'be'}
-    words = re.split(r'\s+', text)
-    return {w for w in words if len(w) > 1 and w not in (bangla_stops | english_stops)}
-
-def smart_similarity(text1, text2):
-    terms1 = extract_key_terms(text1)
-    terms2 = extract_key_terms(text2)
-    
-    if not terms1 or not terms2:
-        token_score = 0.0
-    else:
-        token_score = len(terms1 & terms2) / min(len(terms1), len(terms2))
-
-    seq_score = difflib.SequenceMatcher(None, normalize_text(text1), normalize_text(text2)).ratio()
-    return max(token_score, seq_score)
-
-def semantic_deduplication(articles, similarity_threshold=0.55):
-    if not articles or len(articles) < 2: return articles
-    print(f"\nSemantic Deduplication (Smart Topic Mode, threshold={similarity_threshold})...", flush=True)
-    
-    sorted_indices = sorted(range(len(articles)), key=lambda k: len(articles[k]['title']), reverse=True)
-    keep_mask = [True] * len(articles)
-    duplicates = 0
-    
-    for i in range(len(sorted_indices)):
-        idx_a = sorted_indices[i]
-        if not keep_mask[idx_a]: continue
-            
-        for j in range(i + 1, len(sorted_indices)):
-            idx_b = sorted_indices[j]
-            if not keep_mask[idx_b]: continue
-            
-            if smart_similarity(articles[idx_a]['title'], articles[idx_b]['title']) >= similarity_threshold:
-                keep_mask[idx_b] = False
-                duplicates += 1
-
-    result = [articles[i] for i in range(len(articles)) if keep_mask[i]]
-    print(f"   Removed {duplicates} topic duplicates", flush=True)
-    return result
-
+# ---------- MAIN ----------
 def main():
     print("=" * 60, flush=True)
-    print("Elite News Curator - FINAL PRODUCTION BUILD", flush=True)
+    print("Geopolitical Intelligence Curator", flush=True)
     print("=" * 60, flush=True)
 
-    if not GROQ_API_KEY:
-        print("::error::GEM environment variable is missing!", flush=True)
+    if not GOOGLE_API_KEY:
+        print("::error::PO environment variable is missing!", flush=True)
         sys.exit(1)
-    
+
     articles = fetch_titles_only()
     if not articles:
         print("No articles found.", flush=True)
-        save_xml([], "filtered_feed.xml")
-        save_xml([], "filtered_feed_overflow.xml")
+        write_feed_xml([], "filter_feed.xml")
+        write_feed_xml([], "filter_feed_overflow.xml")
         return
 
-    # Process batches
     model_batches = {}
     for model_info in MODELS:
         bs = model_info['batch_size']
         model_batches[model_info['name']] = [articles[i:i + bs] for i in range(0, len(articles), bs)]
-    
-    max_batch_count = max(len(batches) for batches in model_batches.values())
-    MAX_BATCHES_LIMIT = 20
-    selections_map = {}
-    
-    print(f"\nProcessing {min(max_batch_count, MAX_BATCHES_LIMIT)} Batch Groups...", flush=True)
 
-    for batch_idx in range(min(MAX_BATCHES_LIMIT, max_batch_count)):
-        print(f"  Batch Group {batch_idx+1}...", flush=True)
-        
+    max_batch_count = max(len(batches) for batches in model_batches.values())
+    selections_map = {}
+
+    print(f"\nProcessing {max_batch_count} Batch Groups...", flush=True)
+
+    for batch_idx in range(max_batch_count):
+        print(f"\n  Batch Group {batch_idx+1}...", flush=True)
+
         for model_info in MODELS:
             m_name = model_info['name']
-            if batch_idx >= len(model_batches[m_name]): continue
-            
-            decisions = call_model(model_info, model_batches[m_name][batch_idx])
-            
-            if decisions:
-                print(f"    [{model_info['display']}] Selected {len(decisions)} articles", flush=True)
-                for d in decisions:
-                    aid = d.get('id')
-                    if aid is not None and isinstance(aid, int) and aid < len(articles):
-                        if aid not in selections_map:
-                            selections_map[aid] = {'models': [], 'decisions': []}
-                        selections_map[aid]['models'].append(model_info['display'])
-                        selections_map[aid]['decisions'].append(d)
-            else:
-                 print(f"    [{model_info['display']}] No selections", flush=True)
-            
-            time.sleep(3) 
-        
-        time.sleep(5)
+            if batch_idx >= len(model_batches[m_name]):
+                print(f"    Skipping {model_info['display']} (no batch)", flush=True)
+                continue
 
-    # Merging
+            batch = model_batches[m_name][batch_idx]
+            print(f"    Processing model {model_info['display']} batch {batch_idx+1} (size={len(batch)})", flush=True)
+
+            for run_num in (1, 2, 3):
+                print(f"    [{model_info['display']}] Run {run_num}/3 start at {now_str()}", flush=True)
+                decisions = call_model(model_info, batch)
+
+                if decisions:
+                    print(f"      [{model_info['display']}] Run {run_num} selected {len(decisions)} articles", flush=True)
+                    for aid in decisions:
+                        if isinstance(aid, int) and 0 <= aid < len(articles):
+                            if aid not in selections_map:
+                                selections_map[aid] = {'runs': [], 'count': 0}
+                            selections_map[aid]['runs'].append(f"Batch{batch_idx+1}-Run{run_num}")
+                            selections_map[aid]['count'] += 1
+                else:
+                    print(f"      [{model_info['display']}] Run {run_num} returned no selections", flush=True)
+
+                if run_num < 3:
+                    print(f"      Waiting 61s before next run...", flush=True)
+                    time.sleep(61)
+
+        if batch_idx < max_batch_count - 1:
+            print(f"  Waiting 61s before next batch group...", flush=True)
+            time.sleep(61)
+
+    # filter: selected in at least 2 runs
     final_articles = []
-    print(f"\nMerging...", flush=True)
     for aid, info in selections_map.items():
-        original = articles[aid].copy()
-        first_dec = info['decisions'][0]
-        original['category'] = first_dec.get('category', 'Priority')
-        original['reason'] = first_dec.get('reason', 'Systemic Significance')
-        original['selected_by'] = info['models']
-        final_articles.append(original)
+        if info['count'] >= 2:
+            original = articles[aid].copy()
+            original['category'] = 'Geopolitical'
+            original['reason'] = 'Geopolitically Significant'
+            original['selected_by'] = info['runs']
+            original['selection_count'] = info['count']
+            final_articles.append(original)
 
-    # Deduplication
-    final_articles = semantic_deduplication(final_articles)
-    
-    # --- SPLIT OUTPUT LOGIC ---
+    print(f"\n{'='*60}", flush=True)
+    print(f"FILTERING: Minimum 2 selections required (out of 3 runs per batch)...", flush=True)
+    print(f"{'='*60}", flush=True)
+    print(f"   ✅ {len(final_articles)} articles selected 2+ times", flush=True)
     print(f"\nRESULTS:", flush=True)
     print(f"   Analyzed: {len(articles)} headlines", flush=True)
-    print(f"   Selected: {len(final_articles)} unique articles", flush=True)
-    
-    if len(final_articles) > MAX_FEED_ITEMS:
-        print(f"   [!] Feed Limit Exceeded ({len(final_articles)} > {MAX_FEED_ITEMS}). Splitting output.", flush=True)
-        save_xml(final_articles[:MAX_FEED_ITEMS], "filtered_feed.xml")
-        save_xml(final_articles[MAX_FEED_ITEMS:], "filtered_feed_overflow.xml")
-    else:
-        save_xml(final_articles, "filtered_feed.xml")
-        save_xml([], "filtered_feed_overflow.xml")
+    print(f"   Selected: {len(final_articles)} geopolitically significant articles", flush=True)
+
+    # Split into primary and single overflow (no cascade). Drop extras beyond 2*MAX_FEED_ITEMS.
+    primary = final_articles[:MAX_FEED_ITEMS]
+    overflow = final_articles[MAX_FEED_ITEMS:MAX_FEED_ITEMS * 2]
+
+    write_feed_xml(primary, "filter_feed.xml")
+    write_feed_xml(overflow, "filter_feed_overflow.xml")
 
 if __name__ == "__main__":
     main()
