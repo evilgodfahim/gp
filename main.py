@@ -324,10 +324,21 @@ def call_gemini_cluster(all_articles, model_name="gemini-2.5-flash", min_similar
     if text.startswith("```"):
         text = text.replace("```json", "").replace("```", "").strip()
     parsed = extract_json_from_text(text)
+    
+    # Handle wrapped responses
+    if isinstance(parsed, dict):
+        # Try common wrapper keys
+        for key in ['clusters', 'data', 'result', 'output']:
+            if key in parsed and isinstance(parsed[key], list):
+                parsed = parsed[key]
+                break
+    
     if not isinstance(parsed, list):
         print("Gemini cluster returned invalid format (expected JSON list). Exiting.", flush=True)
         if DEBUG:
             print("Response text:", text[:2000], flush=True)
+            print("Parsed type:", type(parsed), flush=True)
+            print("Parsed value:", parsed, flush=True)
         sys.exit(1)
     validated = []
     for idx, c in enumerate(parsed):
