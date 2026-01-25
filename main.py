@@ -27,7 +27,9 @@ URLS = [
     "https://evilgodfahim.github.io/gpd/daily_feed.xml",
     "https://evilgodfahim.github.io/daily/daily_master.xml",
 "https://feeds.feedburner.com/TheAtlantic",
-"https://time.com/feed/"
+"https://time.com/feed/",
+"https://medium.com/feed/tag/international-relations",
+"https://medium.com/feed/tag/geopolitics"
 ]
 MODELS = [
     {
