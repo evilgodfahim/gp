@@ -43,6 +43,7 @@ SYSTEM_PROMPT = """You are a Geopolitical Intelligence Filter.
 Return ONLY a JSON array of article IDs (integers) that are geopolitically significant.
 Be conservative. Do not infer beyond the headline.
 Prioritise security, state power, macroeconomics, and international consequences.
+Be picky and classy and frugal in choosing titles. Only the top priopities.
 No explanation, no text, JSON only."""
 DEBUG = False
 
