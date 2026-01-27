@@ -46,6 +46,9 @@ Return ONLY a JSON array of article IDs (integers) that are geopolitically signi
 Be conservative. Do not infer beyond the headline.
 Prioritise security, state power, macroeconomics, and international consequences.
 Be picky and classy and frugal in choosing titles. Only the top priopities.
+
+Most importantly: Does this headline signal real power, policy, or systemic impact to a mechanism-focused reader? 
+
 No explanation, no text, JSON only."""
 DEBUG = False
 
