@@ -2,13 +2,20 @@
 <rss version="2.0">
   <channel>
     <title>Geopolitical Intelligence Feed</title>
-    <lastBuildDate>Thu, 29 Jan 2026 05:57:39 +0600</lastBuildDate>
+    <lastBuildDate>Fri, 30 Jan 2026 05:59:42 +0600</lastBuildDate>
     <link>https://github.com/evilgodfahim</link>
     <description>AI-curated geopolitical news feed</description>
     <item>
-      <title>End of Feed</title>
-      <description>No geopolitically significant articles found.</description>
-      <pubDate>Thu, 29 Jan 2026 05:57:39 +0600</pubDate>
+      <title>Why Trumps Greenland fixation?</title>
+      <link>https://mondediplo.com/2026/02/03greenland</link>
+      <pubDate>2026-01-29T08:42:32+00:00</pubDate>
+      <description>&lt;p&gt;&lt;b&gt;[Geopolitical]&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;i&gt;Geopolitically Significant&lt;/i&gt;&lt;/p&gt;&lt;p&gt;&lt;small&gt;Selected by: Batch2-Run2, Batch2-Run3&lt;/small&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p&gt;Why Trumps Greenland fixation?&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>What does the US want from Iran? Tracking one month of Trump’s changing demands</title>
+      <link>https://www.theguardian.com/us-news/2026/jan/29/trump-iran-usa-one-month-demands-protesters-nuclear</link>
+      <pubDate>2026-01-29T04:34:58+00:00</pubDate>
+      <description>&lt;p&gt;&lt;b&gt;[Geopolitical]&lt;/b&gt;&lt;/p&gt;&lt;p&gt;&lt;i&gt;Geopolitically Significant&lt;/i&gt;&lt;/p&gt;&lt;p&gt;&lt;small&gt;Selected by: Batch2-Run2, Batch2-Run3&lt;/small&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p&gt;What does the US want from Iran? Tracking one month of Trump’s changing demands&lt;/p&gt;</description>
     </item>
   </channel>
 </rss>
